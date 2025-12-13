@@ -19,13 +19,13 @@ describe("state helpers", () => {
   it("normalizeAndEnsureProject registers a directory", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "resumer-test-"));
     try {
+      const realDir = fs.realpathSync(dir);
       const state = { version: 1 as const, projects: {}, sessions: {} };
       const project = normalizeAndEnsureProject(state, dir, process.cwd());
-      expect(project.path).toBe(dir);
-      expect(state.projects[project.id]?.path).toBe(dir);
+      expect(project.path).toBe(realDir);
+      expect(state.projects[project.id]?.path).toBe(realDir);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 });
-
