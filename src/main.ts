@@ -13,15 +13,20 @@ import {
 } from "./state.ts";
 import type { Project, SessionRecord, StateV1 } from "./types.ts";
 import { nowIso } from "./time.ts";
+import { copyToSystemClipboard } from "./clipboard.ts";
 import {
   attachOrSwitchTmuxSession,
+  captureTmuxPane,
   createTmuxSession,
+  getActivePaneIdForSession,
   getTmuxEnv,
   hasTmuxSession,
   isTmuxInstalled,
   killTmuxSession,
+  listTmuxSessionInfo,
   listTmuxSessions,
   setTmuxEnv,
+  setTmuxBuffer,
 } from "./tmux.ts";
 import { runMainTui } from "./ui/tui.ts";
 import { runPicker } from "./ui/picker.ts";
@@ -528,6 +533,7 @@ export async function main(argv: string[]): Promise<void> {
       state,
       actions: {
         refreshLiveSessions: () => reconcileStateWithTmux(state),
+        listTmuxSessions: () => listTmuxSessionInfo(),
         createSession: (project, cmd) => createResumerSession(state, project, cmd),
         deleteSession: (sessionName) => {
           try {
@@ -536,6 +542,21 @@ export async function main(argv: string[]): Promise<void> {
             // ignore
           }
           removeSession(state, sessionName);
+        },
+        captureSessionPane: (sessionName) => {
+          const paneId = getActivePaneIdForSession(sessionName);
+          if (!paneId) throw new Error(`Could not find an active pane for session: ${sessionName}`);
+          return captureTmuxPane(paneId);
+        },
+        copyText: (text) => {
+          const res = copyToSystemClipboard(text);
+          if (res.ok) return { method: res.method };
+          try {
+            setTmuxBuffer("resumer", text);
+            return { method: "tmux-buffer(resumer)" };
+          } catch {
+            throw new Error(res.error);
+          }
         },
         linkSession: (project, sessionName, yes) => {
           if (!hasTmuxSession(sessionName)) throw new Error(`tmux session not found: ${sessionName}`);

@@ -118,3 +118,100 @@ export function getTmuxEnv(sessionName: string, key: string): string | null {
     throw err;
   }
 }
+
+export type TmuxSessionInfo = {
+  name: string;
+  attached: number;
+  windows: number;
+  paneId?: string;
+  currentCommand?: string;
+  currentPath?: string;
+};
+
+export function listTmuxSessionInfo(): TmuxSessionInfo[] {
+  try {
+    const sessionsRaw = runTmuxRaw(["list-sessions", "-F", "#{session_name}\t#{session_attached}\t#{session_windows}"])
+      .stdout.split("\n")
+      .map((l) => l.trimEnd())
+      .filter(Boolean);
+
+    const byName = new Map<string, TmuxSessionInfo>();
+    for (const line of sessionsRaw) {
+      const [name, attachedRaw, windowsRaw] = line.split("\t");
+      if (!name) continue;
+      byName.set(name, {
+        name,
+        attached: Number.parseInt(attachedRaw ?? "0", 10) || 0,
+        windows: Number.parseInt(windowsRaw ?? "0", 10) || 0,
+      });
+    }
+
+    const panesRaw = runTmuxRaw([
+      "list-panes",
+      "-a",
+      "-F",
+      "#{session_name}\t#{window_active}\t#{pane_active}\t#{pane_id}\t#{pane_current_command}\t#{pane_current_path}",
+    ])
+      .stdout.split("\n")
+      .map((l) => l.trimEnd())
+      .filter(Boolean);
+
+    const bestPaneBySession = new Map<string, { paneId: string; cmd: string; cwd: string }>();
+    for (const line of panesRaw) {
+      const [session, winActive, paneActive, paneId, cmd, cwd] = line.split("\t");
+      if (!session || !paneId) continue;
+      const isBest = winActive === "1" && paneActive === "1";
+      if (isBest || !bestPaneBySession.has(session)) {
+        bestPaneBySession.set(session, { paneId, cmd: cmd ?? "", cwd: cwd ?? "" });
+      }
+    }
+
+    for (const [name, info] of byName.entries()) {
+      const pane = bestPaneBySession.get(name);
+      if (pane) {
+        info.paneId = pane.paneId;
+        info.currentCommand = pane.cmd;
+        info.currentPath = pane.cwd;
+      }
+    }
+
+    return Array.from(byName.values()).sort((a, b) => {
+      if (a.attached !== b.attached) return b.attached - a.attached;
+      return a.name.localeCompare(b.name);
+    });
+  } catch (err) {
+    if (isNoServerError(err)) return [];
+    throw err;
+  }
+}
+
+export function getActivePaneIdForSession(sessionName: string): string | null {
+  try {
+    const rows = runTmuxRaw(["list-panes", "-t", sessionName, "-F", "#{window_active}\t#{pane_active}\t#{pane_id}"])
+      .stdout.split("\n")
+      .map((l) => l.trimEnd())
+      .filter(Boolean);
+
+    let fallback: string | null = null;
+    for (const row of rows) {
+      const [winActive, paneActive, paneId] = row.split("\t");
+      if (!paneId) continue;
+      if (!fallback) fallback = paneId;
+      if (winActive === "1" && paneActive === "1") return paneId;
+    }
+    return fallback;
+  } catch (err) {
+    if (isNoServerError(err)) return null;
+    if (err instanceof TmuxError) return null;
+    throw err;
+  }
+}
+
+export function captureTmuxPane(target: string, lines = 2000): string {
+  const { stdout } = runTmuxRaw(["capture-pane", "-p", "-J", "-S", `-${lines}`, "-t", target]);
+  return stdout;
+}
+
+export function setTmuxBuffer(bufferName: string, data: string): void {
+  runTmuxRaw(["set-buffer", "-b", bufferName, data]);
+}

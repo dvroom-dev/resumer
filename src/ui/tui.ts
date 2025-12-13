@@ -3,11 +3,15 @@ import type { Widgets } from "blessed";
 import type { Project, SessionRecord, StateV1 } from "../types.ts";
 import { listProjects, listSessionsForProject, normalizeAndEnsureProject, writeState } from "../state.ts";
 import { nowIso } from "../time.ts";
+import type { TmuxSessionInfo } from "../tmux.ts";
 
 export type TuiActions = {
   refreshLiveSessions(): void;
+  listTmuxSessions(): TmuxSessionInfo[];
   createSession(project: Project, command?: string): SessionRecord;
   deleteSession(sessionName: string): void;
+  captureSessionPane(sessionName: string): string;
+  copyText(text: string): { method: string };
   linkSession(project: Project, sessionName: string, yes: boolean): void;
   attachSession(sessionName: string): void;
 };
@@ -17,6 +21,16 @@ function sessionLabel(s: SessionRecord): string {
   const kind = s.kind === "linked" ? "linked" : s.kind === "managed" ? "managed" : "";
   const suffix = kind ? ` · ${kind}` : "";
   return `${s.name} {gray-fg}${cmd}${suffix}{/}`;
+}
+
+function tmuxSessionLabel(info: TmuxSessionInfo, state: StateV1): string {
+  const tracked = state.sessions[info.name];
+  const project = tracked ? state.projects[tracked.projectId] : undefined;
+  const trackedCmd = tracked?.command?.trim().length ? tracked.command.trim() : "";
+  const cmd = trackedCmd || info.currentCommand?.trim() || "(unknown)";
+  const projectHint = project ? ` · ${project.name}` : "";
+  const attachedHint = info.attached ? ` · attached:${info.attached}` : "";
+  return `${info.name} {gray-fg}${cmd}${projectHint}${attachedHint}{/}`;
 }
 
 function getSelectedIndex(list: Widgets.ListElement): number {
@@ -67,14 +81,30 @@ export async function runMainTui(args: {
       tags: true,
     });
 
+    const tmuxBox = blessed.list({
+      parent: screen,
+      top: 0,
+      left: 0,
+      width: "100%",
+      height: "100%-1",
+      keys: true,
+      vi: true,
+      mouse: true,
+      border: "line",
+      label: " tmux ",
+      style: { selected: { bg: "blue", fg: "white" } },
+      scrollbar: { style: { bg: "blue" } },
+      tags: true,
+      hidden: true,
+    });
+
     const footer = blessed.box({
       parent: screen,
       bottom: 0,
       left: 0,
       height: 1,
       width: "100%",
-      content:
-        "Tab: focus · Enter: attach · c: create · d: delete · l: link · a: add · x: remove · r: refresh · q: quit",
+      content: "",
       style: { fg: "gray" },
     });
 
@@ -102,11 +132,40 @@ export async function runMainTui(args: {
       hidden: true,
     });
 
+    let mode: "res" | "tmux" = "res";
     let focused: "projects" | "sessions" = "projects";
     let projects: Project[] = [];
     let sessions: SessionRecord[] = [];
     let selectedProject: Project | null = null;
     let selectedProjectIndex = 0;
+
+    let tmuxSessions: TmuxSessionInfo[] = [];
+    let selectedTmuxIndex = 0;
+
+    let modalClose: (() => void) | null = null;
+
+    let footerTimer: ReturnType<typeof setTimeout> | null = null;
+    function updateFooter() {
+      if (mode === "tmux") {
+        footer.setContent(
+          "Mode: tmux (p: res) · Enter: attach · d: delete · c: capture · y: copy name · r: refresh · q: quit",
+        );
+        return;
+      }
+      footer.setContent(
+        "Mode: res (t: tmux) · Tab: focus · Enter: attach · c: create · d: delete · l: link · a: add · x: remove · r: refresh · q: quit",
+      );
+    }
+
+    function flashFooter(message: string, ms = 1500) {
+      if (footerTimer) clearTimeout(footerTimer);
+      footer.setContent(message);
+      screen.render();
+      footerTimer = setTimeout(() => {
+        updateFooter();
+        screen.render();
+      }, ms);
+    }
 
     function fail(err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -122,13 +181,7 @@ export async function runMainTui(args: {
       question.ask(`Error:\n${text}\n\nOK?`, () => refresh());
     }
 
-    function refresh() {
-      try {
-        args.actions.refreshLiveSessions();
-      } catch (err) {
-        showError(err instanceof Error ? err.message : String(err));
-        return;
-      }
+    function refreshResMode() {
       projects = listProjects(args.state);
       const items = projects.map((p) => `${p.name} {gray-fg}${p.path}{/}`);
       projectsBox.setItems(items);
@@ -138,6 +191,28 @@ export async function runMainTui(args: {
 
       selectedProject = projects[selectedProjectIndex] ?? null;
       refreshSessionsForSelectedProject();
+    }
+
+    function refreshTmuxMode() {
+      tmuxSessions = args.actions.listTmuxSessions();
+      const items = tmuxSessions.map((s) => tmuxSessionLabel(s, args.state));
+      tmuxBox.setItems(items.length ? items : ["(no tmux sessions)"]);
+      selectedTmuxIndex = Math.min(selectedTmuxIndex, Math.max(0, tmuxSessions.length - 1));
+      tmuxBox.select(selectedTmuxIndex);
+    }
+
+    function refresh() {
+      try {
+        args.actions.refreshLiveSessions();
+      } catch (err) {
+        showError(err instanceof Error ? err.message : String(err));
+        return;
+      }
+      if (mode === "tmux") {
+        refreshTmuxMode();
+      } else {
+        refreshResMode();
+      }
       screen.render();
     }
 
@@ -161,6 +236,23 @@ export async function runMainTui(args: {
     function done() {
       screen.destroy();
       resolve();
+    }
+
+    function setMode(nextMode: "res" | "tmux") {
+      mode = nextMode;
+      updateFooter();
+      if (mode === "tmux") {
+        projectsBox.hide();
+        sessionsBox.hide();
+        tmuxBox.show();
+        tmuxBox.focus();
+      } else {
+        tmuxBox.hide();
+        projectsBox.show();
+        sessionsBox.show();
+        (focused === "projects" ? projectsBox : sessionsBox).focus();
+      }
+      refresh();
     }
 
     function withPrompt(title: string, value: string, cb: (input: string) => void) {
@@ -195,6 +287,110 @@ export async function runMainTui(args: {
         resolve();
       } catch (err) {
         fail(err);
+      }
+    }
+
+    function attachSelectedTmuxSession() {
+      const idx = getSelectedIndex(tmuxBox);
+      selectedTmuxIndex = idx;
+      const sess = tmuxSessions[idx];
+      if (!sess) return;
+      screen.destroy();
+      try {
+        args.actions.attachSession(sess.name);
+        resolve();
+      } catch (err) {
+        fail(err);
+      }
+    }
+
+    function deleteSelectedTmuxSession() {
+      const idx = getSelectedIndex(tmuxBox);
+      selectedTmuxIndex = idx;
+      const sess = tmuxSessions[idx];
+      if (!sess) return;
+      withConfirm(`Kill tmux session?\n${sess.name}`, (ok) => {
+        if (!ok) return refresh();
+        try {
+          args.actions.deleteSession(sess.name);
+          writeState(args.state);
+          refresh();
+        } catch (err) {
+          showError(err instanceof Error ? err.message : String(err));
+        }
+      });
+    }
+
+    function copySelectedTmuxSessionName() {
+      const idx = getSelectedIndex(tmuxBox);
+      selectedTmuxIndex = idx;
+      const sess = tmuxSessions[idx];
+      if (!sess) return;
+      try {
+        const res = args.actions.copyText(sess.name);
+        flashFooter(`Copied session name via ${res.method}`);
+      } catch (err) {
+        showError(err instanceof Error ? err.message : String(err));
+      }
+    }
+
+    function openCaptureViewer(title: string, content: string) {
+      const maxChars = 200_000;
+      const truncated = content.length > maxChars;
+      const visible = truncated ? content.slice(-maxChars) : content;
+      const header = truncated ? "(truncated)\n\n" : "";
+
+      const viewer = blessed.scrollableBox({
+        parent: screen,
+        top: 0,
+        left: 0,
+        width: "100%",
+        height: "100%-1",
+        border: "line",
+        label: ` ${title} `,
+        keys: true,
+        vi: true,
+        mouse: true,
+        alwaysScroll: true,
+        scrollable: true,
+        scrollbar: { style: { bg: "blue" } },
+        content: header + visible,
+      });
+
+      footer.setContent("Capture view · q/esc: close · y: copy");
+      viewer.focus();
+      screen.render();
+
+      function close() {
+        modalClose = null;
+        viewer.destroy();
+        updateFooter();
+        (mode === "tmux" ? tmuxBox : focused === "projects" ? projectsBox : sessionsBox).focus();
+        screen.render();
+      }
+
+      modalClose = close;
+      viewer.key(["escape"], () => close());
+      viewer.key(["y"], () => {
+        try {
+          const res = args.actions.copyText(content);
+          flashFooter(`Copied capture via ${res.method}`);
+        } catch (err) {
+          showError(err instanceof Error ? err.message : String(err));
+        }
+      });
+    }
+
+    function captureSelectedTmuxSession() {
+      const idx = getSelectedIndex(tmuxBox);
+      selectedTmuxIndex = idx;
+      const sess = tmuxSessions[idx];
+      if (!sess) return;
+      try {
+        const captured = args.actions.captureSessionPane(sess.name);
+        openCaptureViewer(`capture: ${sess.name}`, captured);
+      } catch (err) {
+        showError(err instanceof Error ? err.message : String(err));
       }
     }
 
@@ -304,19 +500,65 @@ export async function runMainTui(args: {
       });
     }
 
-    screen.key(["q", "C-c"], () => done());
+    screen.key(["C-c"], () => done());
+    screen.key(["q"], () => {
+      if (modalClose) return modalClose();
+      done();
+    });
     screen.key(["tab"], () => {
+      if (modalClose) return;
+      if (mode !== "res") return;
       focused = focused === "projects" ? "sessions" : "projects";
       (focused === "projects" ? projectsBox : sessionsBox).focus();
       screen.render();
     });
 
-    screen.key(["r"], () => refresh());
-    screen.key(["a"], () => addProject());
-    screen.key(["c"], () => createSessionForSelectedProject());
-    screen.key(["d"], () => deleteSelectedSession());
-    screen.key(["l"], () => linkExistingSessionToSelectedProject());
-    screen.key(["x"], () => deleteSelectedProject());
+    screen.key(["t"], () => {
+      if (modalClose) return;
+      setMode("tmux");
+    });
+    screen.key(["p"], () => {
+      if (modalClose) return;
+      setMode("res");
+    });
+    screen.key(["m"], () => {
+      if (modalClose) return;
+      setMode(mode === "tmux" ? "res" : "tmux");
+    });
+    screen.key(["r"], () => {
+      if (modalClose) return;
+      refresh();
+    });
+    screen.key(["a"], () => {
+      if (modalClose) return;
+      if (mode !== "res") return;
+      addProject();
+    });
+    screen.key(["c"], () => {
+      if (modalClose) return;
+      if (mode === "tmux") return captureSelectedTmuxSession();
+      createSessionForSelectedProject();
+    });
+    screen.key(["d"], () => {
+      if (modalClose) return;
+      if (mode === "tmux") return deleteSelectedTmuxSession();
+      deleteSelectedSession();
+    });
+    screen.key(["l"], () => {
+      if (modalClose) return;
+      if (mode !== "res") return;
+      linkExistingSessionToSelectedProject();
+    });
+    screen.key(["x"], () => {
+      if (modalClose) return;
+      if (mode !== "res") return;
+      deleteSelectedProject();
+    });
+    screen.key(["y"], () => {
+      if (modalClose) return;
+      if (mode !== "tmux") return;
+      copySelectedTmuxSessionName();
+    });
 
     projectsBox.on("select", (_: unknown, idx: number) => {
       selectedProjectIndex = idx;
@@ -326,12 +568,15 @@ export async function runMainTui(args: {
     });
 
     sessionsBox.key(["enter"], () => attachSelectedSession());
+    tmuxBox.key(["enter"], () => attachSelectedTmuxSession());
     projectsBox.key(["enter"], () => {
+      if (mode !== "res") return;
       focused = "sessions";
       sessionsBox.focus();
       screen.render();
     });
 
+    updateFooter();
     projectsBox.focus();
     footer.setFront();
     refresh();

@@ -6,6 +6,10 @@ declare module "blessed/lib/widgets/box.js" {
   const Box: any;
   export default Box;
 }
+declare module "blessed/lib/widgets/scrollablebox.js" {
+  const ScrollableBox: any;
+  export default ScrollableBox;
+}
 declare module "blessed/lib/widgets/list.js" {
   const List: any;
   export default List;
@@ -18,4 +22,3 @@ declare module "blessed/lib/widgets/question.js" {
   const Question: any;
   export default Question;
 }
-

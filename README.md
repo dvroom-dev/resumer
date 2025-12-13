@@ -38,6 +38,13 @@ Notes:
 res
 ```
 
+TUI modes:
+- **res mode** (default): per-project sessions
+  - `t` switches to tmux mode
+- **tmux mode**: all tmux sessions
+  - `p` switches back to res mode
+  - `Enter` attach · `d` delete · `c` capture pane · `y` copy session name
+
 ### Open a project (registers if needed)
 ```bash
 res /path/to/project
