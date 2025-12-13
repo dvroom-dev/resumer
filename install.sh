@@ -66,6 +66,8 @@ asset="res-${os}-${arch}"
 api="https://api.github.com/repos/${REPO}/releases/${VERSION}"
 if [[ "$VERSION" == "latest" ]]; then
   api="https://api.github.com/repos/${REPO}/releases/latest"
+else
+  api="https://api.github.com/repos/${REPO}/releases/tags/${VERSION}"
 fi
 
 tmp="$(mktemp -d)"
