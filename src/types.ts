@@ -16,6 +16,7 @@ export type SessionRecord = {
   projectPath: string;
   createdAt: IsoDateString;
   command?: string; // original user command string (bash -c)
+  kind?: "managed" | "linked";
   lastAttachedAt?: IsoDateString;
 };
 
@@ -24,4 +25,3 @@ export type StateV1 = {
   projects: Record<ProjectId, Project>;
   sessions: Record<string, SessionRecord>;
 };
-

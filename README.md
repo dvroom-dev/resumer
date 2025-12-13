@@ -62,6 +62,12 @@ res -d -s <tmuxSession>   # delete by tmux session name
 res -d -a /path/to/project  # delete all sessions for project
 ```
 
+### Associate an existing tmux session with a project
+```bash
+res -l /path/to/project -s mysession
+res -l /path/to/project            # interactive picker
+```
+
 ### Remove projects
 ```bash
 res -u /path/to/project     # unregister project (kills its sessions)

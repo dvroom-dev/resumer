@@ -13,7 +13,16 @@ import {
 } from "./state.ts";
 import type { Project, SessionRecord, StateV1 } from "./types.ts";
 import { nowIso } from "./time.ts";
-import { isTmuxInstalled, listTmuxSessions, createTmuxSession, killTmuxSession, attachOrSwitchTmuxSession, setTmuxEnv, getTmuxEnv } from "./tmux.ts";
+import {
+  attachOrSwitchTmuxSession,
+  createTmuxSession,
+  getTmuxEnv,
+  hasTmuxSession,
+  isTmuxInstalled,
+  killTmuxSession,
+  listTmuxSessions,
+  setTmuxEnv,
+} from "./tmux.ts";
 import { runMainTui } from "./ui/tui.ts";
 import { runPicker } from "./ui/picker.ts";
 
@@ -26,6 +35,7 @@ type CliOptions = {
   unregister: boolean;
   reset: boolean;
   yes: boolean;
+  link: boolean;
 };
 
 function usage(): string {
@@ -36,6 +46,7 @@ function usage(): string {
     "  res                           Open TUI",
     "  res <path>                    Register/open project session",
     "  res <path> <command...>        Match/create session by command (partial match)",
+    "  res --link <path> -s <name>    Associate an existing tmux session with a project",
     "",
     "Options:",
     "  -c, --create                   Force new session creation",
@@ -43,6 +54,7 @@ function usage(): string {
     "  -a, --all                      With -d and <path>, delete all project sessions",
     "  -s, --session <name>           Target tmux session (for -d)",
     "  -u, --unregister               Remove project + kill its sessions",
+    "  -l, --link                     Associate an existing tmux session with a project",
     "      --reset                    Remove all projects/sessions (requires --yes)",
     "  -y, --yes                      Skip confirmation for destructive ops",
     "  -h, --help                     Show help",
@@ -59,6 +71,7 @@ function parseArgs(argv: string[]): { opts: CliOptions; positionals: string[] } 
     unregister: false,
     reset: false,
     yes: false,
+    link: false,
   };
   const positionals: string[] = [];
 
@@ -87,6 +100,10 @@ function parseArgs(argv: string[]): { opts: CliOptions; positionals: string[] } 
     }
     if (!stop && (arg === "-u" || arg === "--unregister")) {
       opts.unregister = true;
+      continue;
+    }
+    if (!stop && (arg === "-l" || arg === "--link")) {
+      opts.link = true;
       continue;
     }
     if (!stop && arg === "--reset") {
@@ -125,12 +142,13 @@ function reconcileStateWithTmux(state: StateV1): void {
 
   for (const name of liveNames) {
     if (state.sessions[name]) continue;
-    if (!name.startsWith("res_")) continue;
     const projectPath = getTmuxEnv(name, "RESUMER_PROJECT_PATH");
     if (!projectPath) continue;
     const projectId = getTmuxEnv(name, "RESUMER_PROJECT_ID") ?? computeProjectId(projectPath);
-    const cmd = getTmuxEnv(name, "RESUMER_COMMAND") ?? undefined;
+    const cmdRaw = getTmuxEnv(name, "RESUMER_COMMAND");
+    const cmd = cmdRaw && cmdRaw.trim().length ? cmdRaw : undefined;
     const createdAt = getTmuxEnv(name, "RESUMER_CREATED_AT") ?? nowIso();
+    const managed = getTmuxEnv(name, "RESUMER_MANAGED") === "1";
 
     const projectName = projectPath.split("/").filter(Boolean).at(-1) ?? projectPath;
     const project: Project = state.projects[projectId] ?? {
@@ -148,6 +166,7 @@ function reconcileStateWithTmux(state: StateV1): void {
       projectPath,
       createdAt,
       command: cmd,
+      kind: managed ? "managed" : "linked",
     };
   }
 }
@@ -193,6 +212,7 @@ function createResumerSession(state: StateV1, project: Project, command?: string
     projectPath: project.path,
     createdAt: nowIso(),
     command,
+    kind: "managed",
   };
   upsertSession(state, record);
   return record;
@@ -357,6 +377,75 @@ async function handleDelete(args: {
   writeState(args.state);
 }
 
+async function handleLink(args: {
+  state: StateV1;
+  inputPath: string;
+  sessionName?: string;
+  yes: boolean;
+}): Promise<void> {
+  const project = normalizeAndEnsureProject(args.state, args.inputPath, process.cwd());
+  reconcileStateWithTmux(args.state);
+
+  let name = args.sessionName?.trim();
+  if (!name) {
+    const live = listTmuxSessions();
+    if (!live.length) throw new Error("No tmux sessions found.");
+
+    const picked = await runPicker<string>({
+      title: `Link tmux session → ${project.name}`,
+      items: live.map((s) => {
+        const existing = args.state.sessions[s];
+        const existingProject =
+          existing && args.state.projects[existing.projectId]
+            ? args.state.projects[existing.projectId]!.name
+            : existing
+              ? existing.projectId
+              : "";
+        return {
+          label: s,
+          value: s,
+          hint: existingProject ? `currently: ${existingProject}` : undefined,
+        };
+      }),
+      help: "Enter: link · Esc/q: cancel",
+    });
+    if (!picked) return;
+    name = picked;
+  } else {
+    if (!hasTmuxSession(name)) throw new Error(`tmux session not found: ${name}`);
+  }
+
+  const existing = args.state.sessions[name];
+  if (existing && existing.projectId !== project.id && !args.yes) {
+    const existingProject = args.state.projects[existing.projectId]?.name ?? existing.projectId;
+    throw new Error(
+      `tmux session '${name}' is already associated with ${existingProject}. Re-run with --yes to move it.`,
+    );
+  }
+
+  const createdAt = existing?.createdAt ?? nowIso();
+  setTmuxEnv(name, {
+    RESUMER_MANAGED: existing?.kind === "managed" ? "1" : "0",
+    RESUMER_ASSOCIATED: "1",
+    RESUMER_PROJECT_ID: project.id,
+    RESUMER_PROJECT_PATH: project.path,
+    RESUMER_COMMAND: existing?.command ?? "",
+    RESUMER_CREATED_AT: createdAt,
+  });
+
+  const record: SessionRecord = {
+    name,
+    projectId: project.id,
+    projectPath: project.path,
+    createdAt,
+    command: existing?.command,
+    kind: existing?.kind === "managed" ? "managed" : "linked",
+    lastAttachedAt: existing?.lastAttachedAt,
+  };
+  upsertSession(args.state, record);
+  writeState(args.state);
+}
+
 async function handleUnregister(args: { state: StateV1; selector: string }): Promise<void> {
   reconcileStateWithTmux(args.state);
   const project = findProject(args.state, args.selector, process.cwd());
@@ -423,6 +512,12 @@ export async function main(argv: string[]): Promise<void> {
     return;
   }
 
+  if (opts.link) {
+    if (!inputPath) throw new Error("--link requires a project path.");
+    await handleLink({ state, inputPath, sessionName: opts.session, yes: opts.yes });
+    return;
+  }
+
   if (opts.del) {
     await handleDelete({ state, inputPath, sessionName: opts.session, deleteAll: opts.delAll });
     return;
@@ -441,6 +536,34 @@ export async function main(argv: string[]): Promise<void> {
             // ignore
           }
           removeSession(state, sessionName);
+        },
+        linkSession: (project, sessionName, yes) => {
+          if (!hasTmuxSession(sessionName)) throw new Error(`tmux session not found: ${sessionName}`);
+          const existing = state.sessions[sessionName];
+          if (existing && existing.projectId !== project.id && !yes) {
+            const existingProject = state.projects[existing.projectId]?.name ?? existing.projectId;
+            throw new Error(
+              `tmux session '${sessionName}' is already associated with ${existingProject}. Re-run with --yes to move it.`,
+            );
+          }
+          const createdAt = existing?.createdAt ?? nowIso();
+          setTmuxEnv(sessionName, {
+            RESUMER_MANAGED: existing?.kind === "managed" ? "1" : "0",
+            RESUMER_ASSOCIATED: "1",
+            RESUMER_PROJECT_ID: project.id,
+            RESUMER_PROJECT_PATH: project.path,
+            RESUMER_COMMAND: existing?.command ?? "",
+            RESUMER_CREATED_AT: createdAt,
+          });
+          upsertSession(state, {
+            name: sessionName,
+            projectId: project.id,
+            projectPath: project.path,
+            createdAt,
+            command: existing?.command,
+            kind: existing?.kind === "managed" ? "managed" : "linked",
+            lastAttachedAt: existing?.lastAttachedAt,
+          });
         },
         attachSession: (sessionName) => attachSession(state, sessionName),
       },

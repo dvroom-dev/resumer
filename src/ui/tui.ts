@@ -8,12 +8,15 @@ export type TuiActions = {
   refreshLiveSessions(): void;
   createSession(project: Project, command?: string): SessionRecord;
   deleteSession(sessionName: string): void;
+  linkSession(project: Project, sessionName: string, yes: boolean): void;
   attachSession(sessionName: string): void;
 };
 
 function sessionLabel(s: SessionRecord): string {
   const cmd = s.command?.trim().length ? s.command.trim() : "(shell)";
-  return `${s.name} {gray-fg}${cmd}{/}`;
+  const kind = s.kind === "linked" ? "linked" : s.kind === "managed" ? "managed" : "";
+  const suffix = kind ? ` · ${kind}` : "";
+  return `${s.name} {gray-fg}${cmd}${suffix}{/}`;
 }
 
 function getSelectedIndex(list: Widgets.ListElement): number {
@@ -71,7 +74,7 @@ export async function runMainTui(args: {
       height: 1,
       width: "100%",
       content:
-        "Tab: focus · Enter: attach · c: create · d: delete · a: add · x: remove · r: refresh · q: quit",
+        "Tab: focus · Enter: attach · c: create · d: delete · l: link · a: add · x: remove · r: refresh · q: quit",
       style: { fg: "gray" },
     });
 
@@ -237,6 +240,37 @@ export async function runMainTui(args: {
       });
     }
 
+    function linkExistingSessionToSelectedProject() {
+      if (!selectedProject) return;
+      withPrompt("Link tmux session name", "", (name) => {
+        if (!name) return refresh();
+        const project = selectedProject!;
+        const existing = args.state.sessions[name];
+        if (existing && existing.projectId !== project.id) {
+          const existingProject = args.state.projects[existing.projectId]?.name ?? existing.projectId;
+          withConfirm(`Session is currently associated with ${existingProject}.\nMove it to ${project.name}?`, (ok) => {
+            if (!ok) return refresh();
+            try {
+              args.actions.linkSession(project, name, true);
+              writeState(args.state);
+              refresh();
+            } catch (err) {
+              showError(err instanceof Error ? err.message : String(err));
+            }
+          });
+          return;
+        }
+
+        try {
+          args.actions.linkSession(project, name, false);
+          writeState(args.state);
+          refresh();
+        } catch (err) {
+          showError(err instanceof Error ? err.message : String(err));
+        }
+      });
+    }
+
     function deleteSelectedProject() {
       if (!selectedProject) return;
       const project = selectedProject;
@@ -281,6 +315,7 @@ export async function runMainTui(args: {
     screen.key(["a"], () => addProject());
     screen.key(["c"], () => createSessionForSelectedProject());
     screen.key(["d"], () => deleteSelectedSession());
+    screen.key(["l"], () => linkExistingSessionToSelectedProject());
     screen.key(["x"], () => deleteSelectedProject());
 
     projectsBox.on("select", (_: unknown, idx: number) => {
