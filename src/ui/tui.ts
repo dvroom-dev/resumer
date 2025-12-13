@@ -742,7 +742,7 @@ export async function runMainTui(args: {
       copySelectedTmuxSessionName();
     });
 
-    projectsBox.on("select", (_: unknown, idx: number) => {
+    projectsBox.on("select item", (_: unknown, idx: number) => {
       selectedProjectIndex = idx;
       selectedProject = projects[idx] ?? null;
       refreshSessionsForSelectedProject();
