@@ -3,24 +3,25 @@ import { getBlessedTerminalOverride } from "./term.ts";
 
 // Mode colors for branding
 const modeColors = {
-  res: "#2a9d8f",       // teal
-  tmux: "#f4a261",      // orange
-  codex: "#e9c46a",     // gold
-  claude: "#e63946",    // red
+  res: "#44AADA",       // blue
+  tmux: "#6AB244",      // green
+  codex: "#E88E2D",     // orange
+  claude: "#DFD33F",    // yellow
 };
 
 const colors = {
-  accent: "#2a9d8f",    // default teal
-  border: "#457b9d",
+  accent: "#44AADA",    // default blue (res color)
+  border: "#6AB244",    // green
+  error: "#CD3731",     // red
 };
 
-// Colored "resumer" title: r(teal) e(orange) s(gold) u(red) mer(white)
+// Colored "resumer" title: res(blue) u(green) m(orange) e(yellow) r(red)
 const coloredTitle =
-  `{${modeColors.res}-fg}r{/}` +
-  `{${modeColors.tmux}-fg}e{/}` +
-  `{${modeColors.codex}-fg}s{/}` +
-  `{${modeColors.claude}-fg}u{/}` +
-  `{bold}mer{/bold}`;
+  `{${modeColors.res}-fg}{bold}res{/bold}{/}` +
+  `{${modeColors.tmux}-fg}{bold}u{/bold}{/}` +
+  `{${modeColors.codex}-fg}{bold}m{/bold}{/}` +
+  `{${modeColors.claude}-fg}{bold}e{/bold}{/}` +
+  `{${colors.error}-fg}{bold}r{/bold}{/}`;
 
 export type PickerItem<T> = {
   label: string;
@@ -29,7 +30,7 @@ export type PickerItem<T> = {
 };
 
 function styledKey(key: string): string {
-  return `{#2a9d8f-fg}{bold}${key}{/bold}{/}`;
+  return `{${colors.accent}-fg}{bold}${key}{/bold}{/}`;
 }
 
 function styledHelp(items: Array<[string, string]>): string {
@@ -78,7 +79,7 @@ export async function runPicker<T>(args: {
       vi: true,
       mouse: true,
       border: "line",
-      label: ` {#2a9d8f-fg}{bold}${args.title}{/bold}{/} `,
+      label: ` {${colors.accent}-fg}{bold}${args.title}{/bold}{/} `,
       style: {
         border: { fg: colors.border },
         selected: { bg: colors.accent, fg: "black", bold: true },

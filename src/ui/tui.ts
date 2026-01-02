@@ -10,19 +10,20 @@ import type { ClaudeSessionSummary } from "../external/claude.ts";
 
 // Mode-specific colors
 const modeColors = {
-  res: "#2a9d8f",       // teal
-  tmux: "#f4a261",      // orange
-  codex: "#e9c46a",     // gold
-  claude: "#e63946",    // red
+  res: "#44AADA",       // blue
+  tmux: "#6AB244",      // green
+  codex: "#E88E2D",     // orange
+  claude: "#DFD33F",    // yellow
 };
 
 const colors = {
-  secondary: "#457b9d",   // steel blue
+  secondary: "#44AADA",   // blue
+  error: "#CD3731",       // red
   selectedDim: {
     bg: "#374151",
     fg: "#9ca3af",
   },
-  border: "#457b9d",
+  border: "#6AB244",      // green (not blue since res uses blue)
   borderDim: "#4b5563",
 };
 
@@ -50,7 +51,7 @@ export type TuiActions = {
 
 function sessionLabel(s: SessionRecord): string {
   const cmd = s.command?.trim().length ? s.command.trim() : "(shell)";
-  const kind = s.kind === "linked" ? `{#f4a261-fg}linked{/}` : s.kind === "managed" ? `{#2a9d8f-fg}managed{/}` : "";
+  const kind = s.kind === "linked" ? `{${modeColors.tmux}-fg}linked{/}` : s.kind === "managed" ? `{${modeColors.res}-fg}managed{/}` : "";
   const suffix = kind ? ` {gray-fg}·{/gray-fg} ${kind}` : "";
   return `{bold}${s.name}{/bold} {gray-fg}${cmd}{/gray-fg}${suffix}`;
 }
@@ -60,8 +61,8 @@ function tmuxSessionLabel(info: TmuxSessionInfo, state: StateV1): string {
   const project = tracked ? state.projects[tracked.projectId] : undefined;
   const trackedCmd = tracked?.command?.trim().length ? tracked.command.trim() : "";
   const cmd = trackedCmd || info.currentCommand?.trim() || "(unknown)";
-  const projectHint = project ? ` {gray-fg}·{/gray-fg} {#457b9d-fg}${project.name}{/}` : "";
-  const attachedHint = info.attached ? ` {gray-fg}·{/gray-fg} {#e9c46a-fg}attached:${info.attached}{/}` : "";
+  const projectHint = project ? ` {gray-fg}·{/gray-fg} {${colors.secondary}-fg}${project.name}{/}` : "";
+  const attachedHint = info.attached ? ` {gray-fg}·{/gray-fg} {${modeColors.codex}-fg}attached:${info.attached}{/}` : "";
   return `{bold}${info.name}{/bold} {gray-fg}${cmd}{/gray-fg}${projectHint}${attachedHint}`;
 }
 
@@ -73,7 +74,7 @@ function truncate(text: string, max: number): string {
 
 function codexSessionLabel(info: CodexSessionSummary): string {
   const cwd = info.cwd ? ` {gray-fg}${info.cwd}{/gray-fg}` : "";
-  const when = info.lastActivityAt ? ` {gray-fg}·{/gray-fg} {#2a9d8f-fg}${info.lastActivityAt}{/}` : "";
+  const when = info.lastActivityAt ? ` {gray-fg}·{/gray-fg} {${modeColors.res}-fg}${info.lastActivityAt}{/}` : "";
   const prompt = info.lastPrompt ? ` {gray-fg}·{/gray-fg} {gray-fg}${truncate(info.lastPrompt, 80)}{/gray-fg}` : "";
   const id = info.id.length > 12 ? info.id.slice(0, 12) : info.id;
   return `{bold}${id}{/bold}${cwd}${when}${prompt}`;
@@ -81,8 +82,8 @@ function codexSessionLabel(info: CodexSessionSummary): string {
 
 function claudeSessionLabel(info: ClaudeSessionSummary): string {
   const project = info.projectPath ? ` {gray-fg}${info.projectPath}{/gray-fg}` : "";
-  const when = info.lastActivityAt ? ` {gray-fg}·{/gray-fg} {#2a9d8f-fg}${info.lastActivityAt}{/}` : "";
-  const model = info.model ? ` {gray-fg}·{/gray-fg} {#457b9d-fg}${info.model}{/}` : "";
+  const when = info.lastActivityAt ? ` {gray-fg}·{/gray-fg} {${modeColors.res}-fg}${info.lastActivityAt}{/}` : "";
+  const model = info.model ? ` {gray-fg}·{/gray-fg} {${colors.secondary}-fg}${info.model}{/}` : "";
   const prompt = info.lastPrompt ? ` {gray-fg}·{/gray-fg} {gray-fg}${truncate(info.lastPrompt, 80)}{/gray-fg}` : "";
   const id = info.id.length > 12 ? info.id.slice(0, 12) : info.id;
   return `{bold}${id}{/bold}${project}${when}${model}${prompt}`;
@@ -272,13 +273,13 @@ export async function runMainTui(args: {
     let hoveredTab: typeof tabs[number] | null = null;
 
     function updateHeader() {
-      // Colored "resumer" title: r(teal) e(orange) s(gold) u(red) mer(white)
+      // Colored "resumer" title: res(blue) u(green) m(orange) e(yellow) r(red)
       const coloredTitle =
-        `{${modeColors.res}-fg}r{/}` +
-        `{${modeColors.tmux}-fg}e{/}` +
-        `{${modeColors.codex}-fg}s{/}` +
-        `{${modeColors.claude}-fg}u{/}` +
-        `{bold}mer{/bold}`;
+        `{${modeColors.res}-fg}{bold}res{/bold}{/}` +
+        `{${modeColors.tmux}-fg}{bold}u{/bold}{/}` +
+        `{${modeColors.codex}-fg}{bold}m{/bold}{/}` +
+        `{${modeColors.claude}-fg}{bold}e{/bold}{/}` +
+        `{${colors.error}-fg}{bold}r{/bold}{/}`;
 
       // Build tabs with position tracking
       let content = ` ${coloredTitle} {gray-fg}│{/gray-fg}`;
