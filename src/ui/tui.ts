@@ -49,11 +49,68 @@ export type TuiActions = {
   attachSession(sessionName: string): void;
 };
 
-function sessionLabel(s: SessionRecord): string {
-  const cmd = s.command?.trim().length ? s.command.trim() : "(shell)";
-  const kind = s.kind === "linked" ? `{${modeColors.tmux}-fg}linked{/}` : s.kind === "managed" ? `{${modeColors.res}-fg}managed{/}` : "";
-  const suffix = kind ? ` {gray-fg}·{/gray-fg} ${kind}` : "";
-  return `{bold}${s.name}{/bold} {gray-fg}${cmd}{/gray-fg}${suffix}`;
+// Get base command (first word) from a command string
+function getBaseCommand(cmd: string | undefined): string {
+  if (!cmd?.trim()) return "(shell)";
+  const parts = cmd.trim().split(/\s+/);
+  return parts[0] || "(shell)";
+}
+
+// Disambiguate commands: returns the shortest unique prefix for each session's command
+function disambiguateCommands(sessions: SessionRecord[]): Map<string, string> {
+  const result = new Map<string, string>();
+
+  // Group by base command
+  const byBase = new Map<string, SessionRecord[]>();
+  for (const s of sessions) {
+    const base = getBaseCommand(s.command);
+    const group = byBase.get(base) ?? [];
+    group.push(s);
+    byBase.set(base, group);
+  }
+
+  for (const [base, group] of byBase) {
+    if (group.length === 1) {
+      // Only one session with this base command
+      result.set(group[0].name, base);
+    } else {
+      // Multiple sessions - need to disambiguate
+      // Group by full command to find truly ambiguous ones
+      const byFullCmd = new Map<string, SessionRecord[]>();
+      for (const s of group) {
+        const full = s.command?.trim() || "(shell)";
+        const subgroup = byFullCmd.get(full) ?? [];
+        subgroup.push(s);
+        byFullCmd.set(full, subgroup);
+      }
+
+      if (byFullCmd.size === 1) {
+        // All have the same full command, just use base
+        for (const s of group) {
+          result.set(s.name, base);
+        }
+      } else {
+        // Different full commands, show distinguishing args
+        const fullCmds = Array.from(byFullCmd.keys());
+        for (const s of group) {
+          const full = s.command?.trim() || "(shell)";
+          const parts = full.split(/\s+/);
+
+          // Find the shortest prefix that distinguishes this from others
+          let prefix = base;
+          for (let i = 1; i < parts.length; i++) {
+            prefix = parts.slice(0, i + 1).join(" ");
+            // Check if this prefix is unique among fullCmds
+            const matches = fullCmds.filter(fc => fc.startsWith(prefix));
+            if (matches.length === 1) break;
+          }
+          result.set(s.name, prefix);
+        }
+      }
+    }
+  }
+
+  return result;
 }
 
 function tmuxSessionLabel(info: TmuxSessionInfo, state: StateV1): string {
@@ -270,6 +327,13 @@ export async function runMainTui(args: {
     let claudeSessions: ClaudeSessionSummary[] = [];
     let selectedClaudeIndex = 0;
 
+    // Session expand/collapse state
+    let expandedSessionIndex: number | null = null;
+    // Cache tmux info for current sessions
+    let sessionTmuxInfo: Map<string, TmuxSessionInfo> = new Map();
+    // Map from list item index to session index (for expanded views)
+    let listIndexToSessionIndex: number[] = [];
+
     let modalClose: (() => void) | null = null;
 
     let footerTimer: ReturnType<typeof setTimeout> | null = null;
@@ -443,6 +507,7 @@ export async function runMainTui(args: {
           [
             styledKey("Tab", "projects"),
             styledKey("Enter", "attach"),
+            styledKey("o", "open/close"),
             styledKey("c", "create"),
             styledKey("d", "delete"),
             styledKey("l", "link"),
@@ -509,6 +574,152 @@ export async function runMainTui(args: {
         updateFooter();
         screen.render();
       }, ms);
+    }
+
+    // Get last message from claude/codex sessions for the current project
+    function getLastMessageForSession(s: SessionRecord): string | null {
+      const project = selectedProject;
+      if (!project) return null;
+      const cmd = s.command?.toLowerCase() ?? "";
+
+      if (cmd.includes("claude")) {
+        // Find most recent claude session for this project
+        const projectClaude = claudeSessions.filter(
+          (cs) => cs.projectPath === project.path || cs.cwd === project.path
+        );
+        if (projectClaude.length > 0) {
+          // Sort by lastActivityAt descending
+          projectClaude.sort((a, b) => (b.lastActivityAt ?? "").localeCompare(a.lastActivityAt ?? ""));
+          return projectClaude[0].lastPrompt ?? null;
+        }
+      }
+
+      if (cmd.includes("codex")) {
+        // Find most recent codex session for this project
+        const projectCodex = codexSessions.filter(
+          (cs) => cs.cwd === project.path
+        );
+        if (projectCodex.length > 0) {
+          projectCodex.sort((a, b) => (b.lastActivityAt ?? "").localeCompare(a.lastActivityAt ?? ""));
+          return projectCodex[0].lastPrompt ?? null;
+        }
+      }
+
+      return null;
+    }
+
+    // Generate session items for display (handles expand/collapse)
+    // Also builds listIndexToSessionIndex mapping
+    function generateSessionItems(selectedListIndex: number = 0): string[] {
+      listIndexToSessionIndex = [];
+
+      if (!sessions.length) {
+        listIndexToSessionIndex = [-1]; // No valid session
+        return ["(no sessions)"];
+      }
+
+      const disambiguated = disambiguateCommands(sessions);
+      const items: string[] = [];
+
+      for (let i = 0; i < sessions.length; i++) {
+        const s = sessions[i];
+        const isExpanded = expandedSessionIndex === i;
+        const tmuxInfo = sessionTmuxInfo.get(s.name);
+
+        if (isExpanded) {
+          // Expanded view - multiple lines
+          const expandedLines = generateExpandedSessionLines(s, tmuxInfo);
+          for (const line of expandedLines) {
+            items.push(line);
+            listIndexToSessionIndex.push(i);
+          }
+        } else {
+          // Collapsed view - single line
+          const displayCmd = disambiguated.get(s.name) ?? getBaseCommand(s.command);
+          const lastMsg = getLastMessageForSession(s);
+          const msgPart = lastMsg ? ` {gray-fg}│{/gray-fg} {gray-fg}${truncate(lastMsg, 60)}{/gray-fg}` : "";
+
+          items.push(`{bold}${displayCmd}{/bold}${msgPart}`);
+          listIndexToSessionIndex.push(i);
+        }
+      }
+
+      return items;
+    }
+
+    // Update session items and add open/close indicators to selected item
+    function updateSessionDisplay() {
+      const selectedListIdx = getSelectedIndex(sessionsBox);
+      const items = generateSessionItems(selectedListIdx);
+
+      // Add open/close indicator to selected item
+      const sessionIdx = listIndexToSessionIndex[selectedListIdx];
+      if (sessionIdx !== undefined && sessionIdx >= 0 && selectedListIdx < items.length) {
+        const isExpanded = expandedSessionIndex === sessionIdx;
+        const indicator = isExpanded
+          ? `  {${colors.secondary}-fg}cl{underline}o{/underline}se{/}`
+          : `  {${colors.secondary}-fg}{underline}o{/underline}pen{/}`;
+        items[selectedListIdx] = items[selectedListIdx] + indicator;
+      }
+
+      sessionsBox.setItems(items);
+      sessionsBox.select(selectedListIdx);
+    }
+
+    // Generate expanded view lines for a session
+    function generateExpandedSessionLines(s: SessionRecord, tmuxInfo: TmuxSessionInfo | undefined): string[] {
+      const lines: string[] = [];
+      const indent = "  ";
+      const c = colors.secondary;
+
+      // Header line (indicator added separately)
+      lines.push(`{bold}${s.command?.trim() || "(shell)"}{/bold}`);
+
+      // tmux session name
+      lines.push(`${indent}{gray-fg}tmux:{/gray-fg} {${c}-fg}${s.name}{/}`);
+
+      // Kind (managed/linked)
+      if (s.kind) {
+        const kindColor = s.kind === "linked" ? modeColors.tmux : modeColors.res;
+        lines.push(`${indent}{gray-fg}type:{/gray-fg} {${kindColor}-fg}${s.kind}{/}`);
+      }
+
+      // Created date
+      if (s.createdAt) {
+        lines.push(`${indent}{gray-fg}created:{/gray-fg} ${shortTimestamp(s.createdAt)}`);
+      }
+
+      // Last attached
+      if (s.lastAttachedAt) {
+        lines.push(`${indent}{gray-fg}last attached:{/gray-fg} ${shortTimestamp(s.lastAttachedAt)}`);
+      }
+
+      // Tmux info if available
+      if (tmuxInfo) {
+        if (tmuxInfo.attached) {
+          lines.push(`${indent}{gray-fg}attached:{/gray-fg} {${modeColors.codex}-fg}${tmuxInfo.attached} client(s){/}`);
+        }
+        if (tmuxInfo.windows > 1) {
+          lines.push(`${indent}{gray-fg}windows:{/gray-fg} ${tmuxInfo.windows}`);
+        }
+        if (tmuxInfo.currentCommand && tmuxInfo.currentCommand !== s.command?.split(/\s+/)[0]) {
+          lines.push(`${indent}{gray-fg}running:{/gray-fg} ${tmuxInfo.currentCommand}`);
+        }
+        if (tmuxInfo.currentPath) {
+          lines.push(`${indent}{gray-fg}cwd:{/gray-fg} ${tmuxInfo.currentPath}`);
+        }
+      }
+
+      // Last message from claude/codex
+      const lastMsg = getLastMessageForSession(s);
+      if (lastMsg) {
+        lines.push(`${indent}{gray-fg}last prompt:{/gray-fg} ${truncate(lastMsg, 70)}`);
+      }
+
+      // Empty line for separation
+      lines.push("");
+
+      return lines;
     }
 
     function fail(err: unknown) {
@@ -619,20 +830,40 @@ export async function runMainTui(args: {
     }
 
     function refreshSessionsForSelectedProject() {
+      // Reset expanded state when changing projects
+      expandedSessionIndex = null;
+
       if (!selectedProject) {
         sessions = [];
+        listIndexToSessionIndex = [-1];
         sessionsBox.setItems(["(no projects)"]);
         sessionsBox.select(0);
         return;
       }
+
       sessions = listSessionsForProject(args.state, selectedProject.id);
+
       if (!sessions.length) {
+        listIndexToSessionIndex = [-1];
         sessionsBox.setItems(["(no sessions)"]);
         sessionsBox.select(0);
         return;
       }
-      sessionsBox.setItems(sessions.map(sessionLabel));
-      sessionsBox.select(0);
+
+      // Cache tmux info for sessions
+      const allTmuxInfo = args.actions.listTmuxSessions();
+      sessionTmuxInfo.clear();
+      for (const info of allTmuxInfo) {
+        if (sessions.some((s) => s.name === info.name)) {
+          sessionTmuxInfo.set(info.name, info);
+        }
+      }
+
+      // Also load claude/codex sessions for last message display
+      claudeSessions = args.actions.listClaudeSessions();
+      codexSessions = args.actions.listCodexSessions();
+
+      updateSessionDisplay();
     }
 
     function done() {
@@ -769,8 +1000,12 @@ export async function runMainTui(args: {
     function attachSelectedSession() {
       if (!selectedProject) return;
       if (!sessions.length) return;
-      const idx = getSelectedIndex(sessionsBox);
-      const sess = sessions[idx];
+
+      // Map list index to session index
+      const listIdx = getSelectedIndex(sessionsBox);
+      const sessionIdx = listIndexToSessionIndex[listIdx];
+      if (sessionIdx === undefined || sessionIdx < 0) return;
+      const sess = sessions[sessionIdx];
       if (!sess) return;
 
       try {
@@ -903,6 +1138,7 @@ export async function runMainTui(args: {
       const sessionsKeys = [
         ["Tab", "Switch focus to Projects panel"],
         ["Enter", "Attach to selected session"],
+        ["o", "Expand/collapse session details"],
         ["c", "Create new tmux session for selected project"],
         ["d", "Delete selected session (kills tmux session)"],
         ["l", "Link unlinked tmux session to selected project"],
@@ -1407,14 +1643,20 @@ export async function runMainTui(args: {
     function deleteSelectedSession() {
       if (!selectedProject) return;
       if (!sessions.length) return;
-      const idx = getSelectedIndex(sessionsBox);
-      const sess = sessions[idx];
+
+      // Map list index to session index
+      const listIdx = getSelectedIndex(sessionsBox);
+      const sessionIdx = listIndexToSessionIndex[listIdx];
+      if (sessionIdx === undefined || sessionIdx < 0) return;
+      const sess = sessions[sessionIdx];
       if (!sess) return;
+
       withConfirm(`Kill tmux session?\n${sess.name}`, (ok) => {
         if (!ok) return refresh();
         try {
           args.actions.deleteSession(sess.name);
           writeState(args.state);
+          expandedSessionIndex = null; // Reset expanded state
           refresh();
         } catch (err) {
           showError(err instanceof Error ? err.message : String(err));
@@ -1425,14 +1667,20 @@ export async function runMainTui(args: {
     function unlinkSelectedSession() {
       if (!selectedProject) return;
       if (!sessions.length) return;
-      const idx = getSelectedIndex(sessionsBox);
-      const sess = sessions[idx];
+
+      // Map list index to session index
+      const listIdx = getSelectedIndex(sessionsBox);
+      const sessionIdx = listIndexToSessionIndex[listIdx];
+      if (sessionIdx === undefined || sessionIdx < 0) return;
+      const sess = sessions[sessionIdx];
       if (!sess) return;
+
       withConfirm(`Unlink "${sess.name}" from ${selectedProject.name}? (tmux keeps running)`, (ok) => {
         if (!ok) return refresh();
         try {
           args.actions.unassociateSession(sess.name);
           writeState(args.state);
+          expandedSessionIndex = null; // Reset expanded state
           flashFooter(`Unlinked ${sess.name}`);
           refresh();
         } catch (err) {
@@ -1764,6 +2012,46 @@ export async function runMainTui(args: {
       if (searchActive) return;
       startSearch();
     });
+    screen.key(["o"], () => {
+      if (modalClose) return;
+      if (mode !== "res" || focused !== "sessions") return;
+      if (!sessions.length) return;
+
+      // Get the session index from the current list selection
+      const listIdx = getSelectedIndex(sessionsBox);
+      const sessionIdx = listIndexToSessionIndex[listIdx];
+      if (sessionIdx === undefined || sessionIdx < 0) return;
+
+      // Toggle expanded state
+      if (expandedSessionIndex === sessionIdx) {
+        expandedSessionIndex = null;
+      } else {
+        expandedSessionIndex = sessionIdx;
+      }
+
+      // Regenerate display and try to keep selection on the same session
+      const items = generateSessionItems();
+
+      // Find the first list index for this session
+      let newListIdx = 0;
+      for (let i = 0; i < listIndexToSessionIndex.length; i++) {
+        if (listIndexToSessionIndex[i] === sessionIdx) {
+          newListIdx = i;
+          break;
+        }
+      }
+
+      // Add indicator to selected item
+      const isExpanded = expandedSessionIndex === sessionIdx;
+      const indicator = isExpanded
+        ? `  {${colors.secondary}-fg}cl{underline}o{/underline}se{/}`
+        : `  {${colors.secondary}-fg}{underline}o{/underline}pen{/}`;
+      items[newListIdx] = items[newListIdx] + indicator;
+
+      sessionsBox.setItems(items);
+      sessionsBox.select(newListIdx);
+      screen.render();
+    });
     screen.key(["a"], () => {
       if (modalClose) return;
       if (mode !== "res") return;
@@ -1811,6 +2099,14 @@ export async function runMainTui(args: {
       selectedProject = projects[idx] ?? null;
       refreshSessionsForSelectedProject();
       screen.render();
+    });
+
+    sessionsBox.on("select item", () => {
+      // Update display to move the open/close indicator to the selected item
+      if (mode === "res" && sessions.length > 0) {
+        updateSessionDisplay();
+        screen.render();
+      }
     });
 
     sessionsBox.key(["enter"], () => attachSelectedSession());
