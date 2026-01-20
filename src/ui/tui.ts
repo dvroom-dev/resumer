@@ -137,20 +137,33 @@ function shortTimestamp(iso: string): string {
   return iso;
 }
 
+// State indicator: user = waiting on LLM, assistant = waiting on user
+function stateIndicator(lastMessageType: "user" | "assistant" | undefined): string {
+  if (lastMessageType === "user") {
+    return `{${modeColors.codex}-fg}⏳{/}`; // LLM is working
+  }
+  if (lastMessageType === "assistant") {
+    return `{${modeColors.tmux}-fg}⌨{/}`; // Waiting for user
+  }
+  return "{gray-fg}?{/}"; // Unknown state
+}
+
 function codexSessionLabel(info: CodexSessionSummary): string {
+  const state = stateIndicator(info.lastMessageType);
   const cwd = info.cwd ? ` {gray-fg}${info.cwd}{/gray-fg}` : "";
   const when = info.lastActivityAt ? ` {gray-fg}·{/gray-fg} {${modeColors.res}-fg}${shortTimestamp(info.lastActivityAt)}{/}` : "";
   const prompt = info.lastPrompt ? ` {gray-fg}·{/gray-fg} {gray-fg}${truncate(info.lastPrompt, 80)}{/gray-fg}` : "";
   const id = info.id.length > 12 ? info.id.slice(0, 12) : info.id;
-  return `{bold}${id}{/bold}${cwd}${when}${prompt}`;
+  return `${state} {bold}${id}{/bold}${cwd}${when}${prompt}`;
 }
 
 function claudeSessionLabel(info: ClaudeSessionSummary): string {
+  const state = stateIndicator(info.lastMessageType);
   const project = info.projectPath ? ` {gray-fg}${info.projectPath}{/gray-fg}` : "";
   const when = info.lastActivityAt ? ` {gray-fg}·{/gray-fg} {${modeColors.res}-fg}${shortTimestamp(info.lastActivityAt)}{/}` : "";
   const prompt = info.lastPrompt ? ` {gray-fg}·{/gray-fg} {gray-fg}${truncate(info.lastPrompt, 80)}{/gray-fg}` : "";
   const id = info.id.length > 12 ? info.id.slice(0, 12) : info.id;
-  return `{bold}${id}{/bold}${project}${when}${prompt}`;
+  return `${state} {bold}${id}{/bold}${project}${when}${prompt}`;
 }
 
 function getSelectedIndex(list: Widgets.ListElement): number {

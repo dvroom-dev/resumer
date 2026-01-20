@@ -12,6 +12,8 @@ export type ClaudeSessionSummary = {
   version?: string;
   gitBranch?: string;
   sessionFile?: string;
+  /** "user" if waiting on LLM, "assistant" if waiting on user */
+  lastMessageType?: "user" | "assistant";
 };
 
 type ClaudeHistoryLine = {
@@ -46,6 +48,38 @@ function readFileHead(filePath: string, maxBytes: number): string {
   } finally {
     fs.closeSync(fd);
   }
+}
+
+function readFileTail(filePath: string, maxBytes: number): string {
+  const stat = fs.statSync(filePath);
+  const fd = fs.openSync(filePath, "r");
+  try {
+    const start = Math.max(0, stat.size - maxBytes);
+    const buf = Buffer.allocUnsafe(Math.min(maxBytes, stat.size));
+    const bytes = fs.readSync(fd, buf, 0, buf.length, start);
+    return buf.subarray(0, bytes).toString("utf8");
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function getLastMessageType(sessionFile: string): "user" | "assistant" | undefined {
+  try {
+    const tail = readFileTail(sessionFile, 64 * 1024);
+    const lines = tail.split("\n").filter((l) => l.trim());
+    // Search from the end for the last user or assistant message
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const parsed = safeJsonParse(lines[i]);
+      if (!parsed || !isObject(parsed)) continue;
+      const type = typeof parsed.type === "string" ? parsed.type : "";
+      if (type === "user" || type === "assistant") {
+        return type;
+      }
+    }
+  } catch {
+    // Ignore errors
+  }
+  return undefined;
 }
 
 function encodeClaudeProjectDir(projectPath: string): string {
@@ -189,12 +223,14 @@ export function listClaudeSessions(): ClaudeSessionSummary[] {
   for (const [id, info] of byId.entries()) {
     const sessionFile = findClaudeSessionFile(claudeHome, info.projectPath, id);
     const extra = sessionFile ? parseClaudeSessionFile(sessionFile) : {};
+    const lastMessageType = sessionFile ? getLastMessageType(sessionFile) : undefined;
     out.push({
       id,
       projectPath: info.projectPath,
       lastActivityAt: isoFromUnixMs(info.lastTs),
       lastPrompt: info.lastPrompt,
       sessionFile,
+      lastMessageType,
       ...extra,
     });
   }

@@ -11,6 +11,8 @@ export type CodexSessionSummary = {
   cliVersion?: string;
   model?: string;
   sessionFile?: string;
+  /** "user" if waiting on LLM, "assistant" if waiting on user */
+  lastMessageType?: "user" | "assistant";
 };
 
 type CodexHistoryLine = {
@@ -42,6 +44,41 @@ function readFileHead(filePath: string, maxBytes: number): string {
   } finally {
     fs.closeSync(fd);
   }
+}
+
+function readFileTail(filePath: string, maxBytes: number): string {
+  const stat = fs.statSync(filePath);
+  const fd = fs.openSync(filePath, "r");
+  try {
+    const start = Math.max(0, stat.size - maxBytes);
+    const buf = Buffer.allocUnsafe(Math.min(maxBytes, stat.size));
+    const bytes = fs.readSync(fd, buf, 0, buf.length, start);
+    return buf.subarray(0, bytes).toString("utf8");
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function getLastMessageType(sessionFile: string): "user" | "assistant" | undefined {
+  try {
+    const tail = readFileTail(sessionFile, 64 * 1024);
+    const lines = tail.split("\n").filter((l) => l.trim());
+    // Search from the end for the last response_item with a role
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const parsed = safeJsonParse(lines[i]);
+      if (!parsed || !isObject(parsed)) continue;
+      const type = typeof parsed.type === "string" ? parsed.type : "";
+      if (type === "response_item" && isObject(parsed.payload)) {
+        const role = typeof parsed.payload.role === "string" ? parsed.payload.role : "";
+        if (role === "user" || role === "assistant") {
+          return role;
+        }
+      }
+    }
+  } catch {
+    // Ignore errors
+  }
+  return undefined;
 }
 
 function safeJsonParse(line: string): unknown {
@@ -155,10 +192,12 @@ export function listCodexSessions(): CodexSessionSummary[] {
     if (!parsed) continue;
     const last = lastPrompt.get(parsed.id);
     const lastActivityAt = last ? isoFromUnixSeconds(last.ts) : undefined;
+    const lastMessageType = getLastMessageType(filePath);
     out.push({
       ...parsed,
       lastActivityAt,
       lastPrompt: last?.text,
+      lastMessageType,
     });
   }
 
