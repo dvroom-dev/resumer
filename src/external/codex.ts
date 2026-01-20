@@ -61,18 +61,18 @@ function readFileTail(filePath: string, maxBytes: number): string {
 
 function getLastMessageType(sessionFile: string): "user" | "assistant" | undefined {
   try {
-    const tail = readFileTail(sessionFile, 64 * 1024);
+    const tail = readFileTail(sessionFile, 256 * 1024);
     const lines = tail.split("\n").filter((l) => l.trim());
-    // Search from the end for the last response_item with a role
+    // Find the last meaningful item
+    // All idle session files are waiting on user to resume - the LLM isn't actively running
     for (let i = lines.length - 1; i >= 0; i--) {
       const parsed = safeJsonParse(lines[i]);
       if (!parsed || !isObject(parsed)) continue;
       const type = typeof parsed.type === "string" ? parsed.type : "";
-      if (type === "response_item" && isObject(parsed.payload)) {
-        const role = typeof parsed.payload.role === "string" ? parsed.payload.role : "";
-        if (role === "user" || role === "assistant") {
-          return role;
-        }
+
+      // Any event_msg or response_item means session exists - it's waiting on user to resume
+      if (type === "event_msg" || type === "response_item") {
+        return "assistant"; // Session is idle, waiting on user to resume
       }
     }
   } catch {

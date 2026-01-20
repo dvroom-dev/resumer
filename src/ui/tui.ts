@@ -137,15 +137,18 @@ function shortTimestamp(iso: string): string {
   return iso;
 }
 
-// State indicator: user = waiting on LLM, assistant = waiting on user
-function stateIndicator(lastMessageType: "user" | "assistant" | undefined): string {
+// State indicator: user = waiting on LLM, assistant = waiting on user, exited = session ended
+function stateIndicator(lastMessageType: "user" | "assistant" | "exited" | undefined): string {
   if (lastMessageType === "user") {
-    return `{${modeColors.codex}-fg}⏳{/}`; // LLM is working
+    return `{${modeColors.codex}-fg}◷{/}`; // LLM is working (clock)
   }
   if (lastMessageType === "assistant") {
-    return `{${modeColors.tmux}-fg}⌨{/}`; // Waiting for user
+    return `{${modeColors.tmux}-fg}☺{/}`; // Waiting for user (human)
   }
-  return "{gray-fg}?{/}"; // Unknown state
+  if (lastMessageType === "exited") {
+    return `{gray-fg}×{/}`; // Session exited
+  }
+  return "{gray-fg}○{/}"; // Unknown state
 }
 
 function codexSessionLabel(info: CodexSessionSummary): string {
@@ -624,6 +627,35 @@ export async function runMainTui(args: {
       return null;
     }
 
+    // Get state indicator for a res session (based on claude/codex session state)
+    function getSessionStateIndicator(s: SessionRecord): string {
+      const project = selectedProject;
+      if (!project) return "";
+      const cmd = s.command?.toLowerCase() ?? "";
+
+      if (cmd.includes("claude")) {
+        const projectClaude = claudeSessions.filter(
+          (cs) => cs.projectPath === project.path || cs.cwd === project.path
+        );
+        if (projectClaude.length > 0) {
+          projectClaude.sort((a, b) => (b.lastActivityAt ?? "").localeCompare(a.lastActivityAt ?? ""));
+          return stateIndicator(projectClaude[0].lastMessageType) + " ";
+        }
+      }
+
+      if (cmd.includes("codex")) {
+        const projectCodex = codexSessions.filter(
+          (cs) => cs.cwd === project.path
+        );
+        if (projectCodex.length > 0) {
+          projectCodex.sort((a, b) => (b.lastActivityAt ?? "").localeCompare(a.lastActivityAt ?? ""));
+          return stateIndicator(projectCodex[0].lastMessageType) + " ";
+        }
+      }
+
+      return "";
+    }
+
     // Generate session items for display (handles expand/collapse)
     // Also builds listIndexToSessionIndex mapping
     function generateSessionItems(selectedListIndex: number = 0): string[] {
@@ -651,11 +683,12 @@ export async function runMainTui(args: {
           }
         } else {
           // Collapsed view - single line
+          const stateInd = getSessionStateIndicator(s);
           const displayCmd = disambiguated.get(s.name) ?? getBaseCommand(s.command);
           const lastMsg = getLastMessageForSession(s);
           const msgPart = lastMsg ? ` {gray-fg}│{/gray-fg} {gray-fg}${truncate(lastMsg, 60)}{/gray-fg}` : "";
 
-          items.push(`{bold}${displayCmd}{/bold}${msgPart}`);
+          items.push(`${stateInd}{bold}${displayCmd}{/bold}${msgPart}`);
           listIndexToSessionIndex.push(i);
         }
       }
@@ -749,8 +782,9 @@ export async function runMainTui(args: {
       const indent = "  ";
       const c = colors.secondary;
 
-      // Header line (indicator added separately)
-      lines.push(`{bold}${s.command?.trim() || "(shell)"}{/bold}`);
+      // Header line with state indicator
+      const stateInd = getSessionStateIndicator(s);
+      lines.push(`${stateInd}{bold}${s.command?.trim() || "(shell)"}{/bold}`);
 
       // tmux session name
       lines.push(`${indent}{gray-fg}tmux:{/gray-fg} {${c}-fg}${s.name}{/}`);
@@ -844,6 +878,7 @@ export async function runMainTui(args: {
 
       function close() {
         errorBox.destroy();
+        screen.realloc();
         screen.render();
         refresh();
       }
@@ -963,6 +998,8 @@ export async function runMainTui(args: {
         (focused === "projects" ? projectsBox : sessionsBox).focus();
       }
       updateFocusedStyles();
+      // Force full screen redraw to clear any visual artifacts from mode switch
+      screen.realloc();
       refresh();
     }
 
@@ -1019,6 +1056,7 @@ export async function runMainTui(args: {
         if (submitted) return;
         submitted = true;
         promptBox.destroy();
+        screen.realloc();
         screen.render();
         cb(result);
       }
@@ -1066,6 +1104,7 @@ export async function runMainTui(args: {
 
       function close(result: boolean) {
         confirmBox.destroy();
+        screen.realloc();
         screen.render();
         cb(result);
       }
@@ -1176,10 +1215,8 @@ export async function runMainTui(args: {
       function close() {
         modalClose = null;
         viewer.destroy();
-        updateFooter();
-        updateFocusedStyles();
-        (mode === "res" ? (focused === "projects" ? projectsBox : sessionsBox) : tmuxBox).focus();
-        screen.render();
+        screen.realloc();
+        refresh();
       }
 
       modalClose = close;
@@ -1293,10 +1330,8 @@ export async function runMainTui(args: {
       function close() {
         modalClose = null;
         helpBox.destroy();
-        updateFooter();
-        updateFocusedStyles();
-        (mode === "res" ? (focused === "projects" ? projectsBox : sessionsBox) : tmuxBox).focus();
-        screen.render();
+        screen.realloc();
+        refresh();
       }
 
       modalClose = close;
@@ -1483,6 +1518,7 @@ export async function runMainTui(args: {
         updateFooter();
         updateFocusedStyles();
         (mode === "res" ? (focused === "projects" ? projectsBox : sessionsBox) : tmuxBox).focus();
+        screen.realloc();
         screen.render();
       }
 
@@ -1667,6 +1703,7 @@ export async function runMainTui(args: {
         updateFooter();
         updateFocusedStyles();
         (focused === "projects" ? projectsBox : sessionsBox).focus();
+        screen.realloc();
         screen.render();
       }
 
@@ -1847,6 +1884,7 @@ export async function runMainTui(args: {
         updateFooter();
         updateFocusedStyles();
         (focused === "projects" ? projectsBox : sessionsBox).focus();
+        screen.realloc();
         screen.render();
       }
 
@@ -2026,6 +2064,7 @@ export async function runMainTui(args: {
         searchInput.destroy();
         updateFooter();
         activeList.focus();
+        screen.realloc();
         screen.render();
       }
 

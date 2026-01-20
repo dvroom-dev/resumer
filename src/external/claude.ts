@@ -12,8 +12,8 @@ export type ClaudeSessionSummary = {
   version?: string;
   gitBranch?: string;
   sessionFile?: string;
-  /** "user" if waiting on LLM, "assistant" if waiting on user */
-  lastMessageType?: "user" | "assistant";
+  /** "user" if waiting on LLM, "assistant" if waiting on user, "exited" if session ended */
+  lastMessageType?: "user" | "assistant" | "exited";
 };
 
 type ClaudeHistoryLine = {
@@ -63,17 +63,54 @@ function readFileTail(filePath: string, maxBytes: number): string {
   }
 }
 
-function getLastMessageType(sessionFile: string): "user" | "assistant" | undefined {
+function getLastMessageType(sessionFile: string): "user" | "assistant" | "exited" | undefined {
   try {
-    const tail = readFileTail(sessionFile, 64 * 1024);
+    const tail = readFileTail(sessionFile, 256 * 1024);
     const lines = tail.split("\n").filter((l) => l.trim());
-    // Search from the end for the last user or assistant message
+
+    // First pass: check last few user messages for /exit or Goodbye
+    let userMsgCount = 0;
+    for (let i = lines.length - 1; i >= 0 && userMsgCount < 5; i--) {
+      const parsed = safeJsonParse(lines[i]);
+      if (!parsed || !isObject(parsed)) continue;
+      const type = typeof parsed.type === "string" ? parsed.type : "";
+      if (type === "user" && isObject(parsed.message)) {
+        userMsgCount++;
+        const content = parsed.message.content;
+        if (typeof content === "string" && (content.includes("/exit") || content.includes("Goodbye!"))) {
+          return "exited";
+        }
+      }
+    }
+
+    // Second pass: find the last user or assistant message to determine state
     for (let i = lines.length - 1; i >= 0; i--) {
       const parsed = safeJsonParse(lines[i]);
       if (!parsed || !isObject(parsed)) continue;
       const type = typeof parsed.type === "string" ? parsed.type : "";
-      if (type === "user" || type === "assistant") {
-        return type;
+
+      if (type === "user" && isObject(parsed.message)) {
+        const content = parsed.message.content;
+        // Check if it's a tool_result (LLM should continue)
+        if (Array.isArray(content) && content.some((c: any) => c?.type === "tool_result")) {
+          return "user"; // Tool result, LLM should respond
+        }
+        // Check if it's a local shell command (! command) - user ran something, waiting on user
+        if (typeof content === "string" && (content.includes("<bash-stdout>") || content.includes("<bash-input>") || content.includes("<local-command-caveat>"))) {
+          return "assistant"; // User ran shell command, waiting on user
+        }
+        // Real user message, LLM should respond
+        return "user";
+      }
+
+      if (type === "assistant" && isObject(parsed.message)) {
+        const content = parsed.message.content;
+        // Check if assistant made a tool call
+        if (Array.isArray(content) && content.some((c: any) => c?.type === "tool_use")) {
+          return "user"; // Tool call, waiting for result, LLM is working
+        }
+        // No tool call, Claude finished - waiting for user
+        return "assistant";
       }
     }
   } catch {
