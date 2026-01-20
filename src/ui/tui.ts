@@ -655,6 +655,37 @@ export async function runMainTui(args: {
       return s.replace(/\{[^}]+\}/g, "").length;
     }
 
+    // Truncate visible text (preserving tags) to max length, add ellipsis if needed
+    function truncateToWidth(s: string, maxWidth: number): string {
+      const visible = s.replace(/\{[^}]+\}/g, "");
+      if (visible.length <= maxWidth) {
+        // Pad to exact width
+        return s + " ".repeat(maxWidth - visible.length);
+      }
+      // Need to truncate - this is approximate since we can't easily split mid-tag
+      // Just truncate the visible portion and hope tags are at the end
+      let result = "";
+      let visibleCount = 0;
+      let i = 0;
+      while (i < s.length && visibleCount < maxWidth - 1) {
+        if (s[i] === "{") {
+          // Skip tag
+          const end = s.indexOf("}", i);
+          if (end !== -1) {
+            result += s.slice(i, end + 1);
+            i = end + 1;
+          } else {
+            break;
+          }
+        } else {
+          result += s[i];
+          visibleCount++;
+          i++;
+        }
+      }
+      return result + "…";
+    }
+
     // Update session items and add open/close indicators to selected item
     function updateSessionDisplay() {
       if (updatingSessionDisplay) return;
@@ -664,24 +695,32 @@ export async function runMainTui(args: {
         const selectedListIdx = getSelectedIndex(sessionsBox);
         const items = generateSessionItems(selectedListIdx);
 
-        // Add right-justified open/close indicator to selected item
-        const sessionIdx = listIndexToSessionIndex[selectedListIdx];
-        if (sessionIdx !== undefined && sessionIdx >= 0 && selectedListIdx < items.length) {
-          const isExpanded = expandedSessionIndex === sessionIdx;
-          const indicatorText = isExpanded ? "close" : "open";
-          const indicatorStyled = isExpanded
-            ? `{#374151-bg}{white-fg} cl{${colors.secondary}-fg}{underline}o{/underline}{/}se {/}`
-            : `{#374151-bg}{white-fg} {${colors.secondary}-fg}{underline}o{/underline}{/}pen {/}`;
+        // Calculate column widths
+        // sessionsBox width minus borders (2) minus scrollbar (1)
+        const boxWidth = (sessionsBox as any).width;
+        const totalWidth = (typeof boxWidth === "number" ? boxWidth : 80) - 3;
+        const indicatorWidth = 7; // " open " or " close"
+        const contentWidth = totalWidth - indicatorWidth;
 
-          // Calculate padding for right-justification
-          // sessionsBox width minus borders (2) minus scrollbar (1) minus indicator length
-          const boxWidth = (sessionsBox as any).width;
-          const availableWidth = (typeof boxWidth === "number" ? boxWidth : 80) - 3;
-          const contentLength = visibleLength(items[selectedListIdx]);
-          const indicatorLength = indicatorText.length + 2; // +2 for spaces
-          const padding = Math.max(1, availableWidth - contentLength - indicatorLength);
+        // Format all items to fixed width, add indicator only to selected
+        for (let i = 0; i < items.length; i++) {
+          const sessionIdx = listIndexToSessionIndex[i];
+          const isSelected = i === selectedListIdx;
+          const isValidSession = sessionIdx !== undefined && sessionIdx >= 0;
 
-          items[selectedListIdx] = items[selectedListIdx] + " ".repeat(padding) + indicatorStyled;
+          // Truncate/pad content to fixed width
+          const paddedContent = truncateToWidth(items[i], contentWidth);
+
+          if (isSelected && isValidSession) {
+            const isExpanded = expandedSessionIndex === sessionIdx;
+            // White background, black text, with 'o' underlined in blue
+            const indicator = isExpanded
+              ? `{white-bg}{black-fg} cl{${colors.secondary}-fg}{underline}o{/underline}{/black-fg}se {/}`
+              : `{white-bg}{black-fg} {${colors.secondary}-fg}{underline}o{/underline}{/black-fg}pen {/}`;
+            items[i] = paddedContent + indicator;
+          } else {
+            items[i] = paddedContent;
+          }
         }
 
         sessionsBox.setItems(items);
