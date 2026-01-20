@@ -220,8 +220,8 @@ export async function runMainTui(args: {
       parent: screen,
       top: 1,
       left: 0,
-      width: "45%",
-      height: "100%-2",
+      width: "100%",
+      height: "30%",
       keys: true,
       vi: true,
       mouse: true,
@@ -237,10 +237,10 @@ export async function runMainTui(args: {
 
     const sessionsBox = blessed.list({
       parent: screen,
-      top: 1,
-      left: "45%",
-      width: "55%",
-      height: "100%-2",
+      top: "30%+1",
+      left: 0,
+      width: "100%",
+      height: "70%-2",
       keys: true,
       vi: true,
       mouse: true,
@@ -333,6 +333,8 @@ export async function runMainTui(args: {
     let sessionTmuxInfo: Map<string, TmuxSessionInfo> = new Map();
     // Map from list item index to session index (for expanded views)
     let listIndexToSessionIndex: number[] = [];
+    // Guard to prevent recursive updates
+    let updatingSessionDisplay = false;
 
     let modalClose: (() => void) | null = null;
 
@@ -448,6 +450,7 @@ export async function runMainTui(args: {
       if (mode === "tmux") {
         footer.setContent(
           [
+            styledKey("?", "help"),
             styledKey("Enter", "attach"),
             styledKey("d", "delete"),
             styledKey("c", "capture"),
@@ -456,7 +459,6 @@ export async function runMainTui(args: {
             styledKey("u", "unlink"),
             styledKey("/", "search"),
             styledKey("r", "refresh"),
-            styledKey("?", "help"),
             styledKey("q", "quit"),
           ].join(sep),
         );
@@ -465,6 +467,7 @@ export async function runMainTui(args: {
       if (mode === "codex") {
         footer.setContent(
           [
+            styledKey("?", "help"),
             styledKey("Enter", "view"),
             styledKey("c", "create tmux"),
             styledKey("y", "copy id"),
@@ -478,6 +481,7 @@ export async function runMainTui(args: {
       if (mode === "claude") {
         footer.setContent(
           [
+            styledKey("?", "help"),
             styledKey("Enter", "view"),
             styledKey("c", "create tmux"),
             styledKey("y", "copy id"),
@@ -492,12 +496,12 @@ export async function runMainTui(args: {
         footer.setContent(
           "Projects" + sep +
           [
+            styledKey("?", "help"),
             styledKey("Enter", "sessions"),
             styledKey("a", "add"),
             styledKey("x", "remove"),
             styledKey("/", "search"),
             styledKey("r", "refresh"),
-            styledKey("?", "help"),
             styledKey("q", "quit"),
           ].join(sep),
         );
@@ -505,7 +509,7 @@ export async function runMainTui(args: {
         footer.setContent(
           "Sessions" + sep +
           [
-            styledKey("Tab", "projects"),
+            styledKey("?", "help"),
             styledKey("Enter", "attach"),
             styledKey("o", "open/close"),
             styledKey("c", "create"),
@@ -514,7 +518,6 @@ export async function runMainTui(args: {
             styledKey("u", "unlink"),
             styledKey("/", "search"),
             styledKey("r", "refresh"),
-            styledKey("?", "help"),
             styledKey("q", "quit"),
           ].join(sep),
         );
@@ -647,23 +650,45 @@ export async function runMainTui(args: {
       return items;
     }
 
+    // Strip blessed tags to get visible text length
+    function visibleLength(s: string): number {
+      return s.replace(/\{[^}]+\}/g, "").length;
+    }
+
     // Update session items and add open/close indicators to selected item
     function updateSessionDisplay() {
-      const selectedListIdx = getSelectedIndex(sessionsBox);
-      const items = generateSessionItems(selectedListIdx);
+      if (updatingSessionDisplay) return;
+      updatingSessionDisplay = true;
 
-      // Add open/close indicator to selected item
-      const sessionIdx = listIndexToSessionIndex[selectedListIdx];
-      if (sessionIdx !== undefined && sessionIdx >= 0 && selectedListIdx < items.length) {
-        const isExpanded = expandedSessionIndex === sessionIdx;
-        const indicator = isExpanded
-          ? `  {${colors.secondary}-fg}cl{underline}o{/underline}se{/}`
-          : `  {${colors.secondary}-fg}{underline}o{/underline}pen{/}`;
-        items[selectedListIdx] = items[selectedListIdx] + indicator;
+      try {
+        const selectedListIdx = getSelectedIndex(sessionsBox);
+        const items = generateSessionItems(selectedListIdx);
+
+        // Add right-justified open/close indicator to selected item
+        const sessionIdx = listIndexToSessionIndex[selectedListIdx];
+        if (sessionIdx !== undefined && sessionIdx >= 0 && selectedListIdx < items.length) {
+          const isExpanded = expandedSessionIndex === sessionIdx;
+          const indicatorText = isExpanded ? "close" : "open";
+          const indicatorStyled = isExpanded
+            ? `{#374151-bg}{white-fg} cl{${colors.secondary}-fg}{underline}o{/underline}{/}se {/}`
+            : `{#374151-bg}{white-fg} {${colors.secondary}-fg}{underline}o{/underline}{/}pen {/}`;
+
+          // Calculate padding for right-justification
+          // sessionsBox width minus borders (2) minus scrollbar (1) minus indicator length
+          const boxWidth = (sessionsBox as any).width;
+          const availableWidth = (typeof boxWidth === "number" ? boxWidth : 80) - 3;
+          const contentLength = visibleLength(items[selectedListIdx]);
+          const indicatorLength = indicatorText.length + 2; // +2 for spaces
+          const padding = Math.max(1, availableWidth - contentLength - indicatorLength);
+
+          items[selectedListIdx] = items[selectedListIdx] + " ".repeat(padding) + indicatorStyled;
+        }
+
+        sessionsBox.setItems(items);
+        sessionsBox.select(selectedListIdx);
+      } finally {
+        updatingSessionDisplay = false;
       }
-
-      sessionsBox.setItems(items);
-      sessionsBox.select(selectedListIdx);
     }
 
     // Generate expanded view lines for a session
