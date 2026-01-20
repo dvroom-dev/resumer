@@ -72,9 +72,17 @@ function truncate(text: string, max: number): string {
   return t.slice(0, Math.max(0, max - 1)) + "…";
 }
 
+// Strip seconds from ISO timestamp: "2024-01-15T10:30:45Z" -> "2024-01-15 10:30"
+function shortTimestamp(iso: string): string {
+  // Match YYYY-MM-DDTHH:MM and drop the rest
+  const match = iso.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
+  if (match) return `${match[1]} ${match[2]}`;
+  return iso;
+}
+
 function codexSessionLabel(info: CodexSessionSummary): string {
   const cwd = info.cwd ? ` {gray-fg}${info.cwd}{/gray-fg}` : "";
-  const when = info.lastActivityAt ? ` {gray-fg}·{/gray-fg} {${modeColors.res}-fg}${info.lastActivityAt}{/}` : "";
+  const when = info.lastActivityAt ? ` {gray-fg}·{/gray-fg} {${modeColors.res}-fg}${shortTimestamp(info.lastActivityAt)}{/}` : "";
   const prompt = info.lastPrompt ? ` {gray-fg}·{/gray-fg} {gray-fg}${truncate(info.lastPrompt, 80)}{/gray-fg}` : "";
   const id = info.id.length > 12 ? info.id.slice(0, 12) : info.id;
   return `{bold}${id}{/bold}${cwd}${when}${prompt}`;
@@ -82,11 +90,10 @@ function codexSessionLabel(info: CodexSessionSummary): string {
 
 function claudeSessionLabel(info: ClaudeSessionSummary): string {
   const project = info.projectPath ? ` {gray-fg}${info.projectPath}{/gray-fg}` : "";
-  const when = info.lastActivityAt ? ` {gray-fg}·{/gray-fg} {${modeColors.res}-fg}${info.lastActivityAt}{/}` : "";
-  const model = info.model ? ` {gray-fg}·{/gray-fg} {${colors.secondary}-fg}${info.model}{/}` : "";
+  const when = info.lastActivityAt ? ` {gray-fg}·{/gray-fg} {${modeColors.res}-fg}${shortTimestamp(info.lastActivityAt)}{/}` : "";
   const prompt = info.lastPrompt ? ` {gray-fg}·{/gray-fg} {gray-fg}${truncate(info.lastPrompt, 80)}{/gray-fg}` : "";
   const id = info.id.length > 12 ? info.id.slice(0, 12) : info.id;
-  return `{bold}${id}{/bold}${project}${when}${model}${prompt}`;
+  return `{bold}${id}{/bold}${project}${when}${prompt}`;
 }
 
 function getSelectedIndex(list: Widgets.ListElement): number {
