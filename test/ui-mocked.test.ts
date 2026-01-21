@@ -42,10 +42,11 @@ const created: FakeElement[] = [];
 function createElement(type: string, options: any = {}): FakeElement {
   const events = new Map<string, Array<(...args: any[]) => void>>();
   const keys = new Map<string, Array<(...args: any[]) => void>>();
+  const baseStyle = { border: {}, selected: {}, scrollbar: {} };
   const el: FakeElement = {
     __type: type,
     options,
-    style: options.style ?? {},
+    style: { ...baseStyle, ...(options.style ?? {}) },
     content: options.content ?? "",
     label: options.label ?? "",
     items: options.items ?? [],
@@ -190,6 +191,8 @@ function makeCtx() {
       listClaudeSessions: () => [],
       listCodexSessions: () => [],
       listTmuxSessionsInfo: () => [],
+      refreshLiveSessions: () => {},
+      listTmuxSessions: () => [],
     },
     screen: ui.screen,
     header: ui.header,
@@ -234,6 +237,8 @@ describe("ui modules with mocked blessed", () => {
     header.bindHeaderEvents(ctx as any, { setMode: (mode: string) => (ctx.mode = mode), updateHeader: () => header.updateHeader(ctx as any), updateFooter: () => {}, updateFocusedStyles: () => {}, refresh: () => {}, refreshSessionsForSelectedProject: () => {}, updateSessionDisplay: () => {}, flashFooter: () => {}, withPrompt: () => {}, withConfirm: () => {}, showError: () => {}, openTextViewer: () => {}, showHelp: () => {}, done: () => {}, fail: () => {} } as any);
     (ctx.header as any).emit("click", { x: 14 });
     expect(ctx.mode).toBe("res");
+    (ctx.header as any).emit("mousemove", { x: 14 });
+    (ctx.header as any).emit("mouseout");
   });
 
   it("updates footer and focused styles", () => {
@@ -251,6 +256,10 @@ describe("ui modules with mocked blessed", () => {
     expect((ctx.footer as any).content).toContain("Projects");
     footer.updateFocusedStyles(ctx as any);
     expect((ctx.projectsBox as any).label).toContain("Projects");
+    ctx.mode = "tmux";
+    footer.updateFooter(ctx as any, runtime);
+    expect((ctx.footer as any).content).toContain("attach");
+    footer.updateFocusedStyles(ctx as any);
   });
 
   it("updates project and session displays", () => {
@@ -262,6 +271,15 @@ describe("ui modules with mocked blessed", () => {
     expect((ctx.projectsBox as any).items?.length).toBe(1);
     sessionDisplay.updateSessionDisplay(ctx as any);
     expect((ctx.sessionsBox as any).items?.length).toBeGreaterThan(0);
+    ctx.mode = "codex";
+    ctx.codexSessions = [{ id: "c1", cwd: "/tmp", lastPrompt: "hi" } as any];
+    refresh.refresh(ctx as any, {
+      refreshSessionsForSelectedProject: () => {},
+      updateFooter: () => {},
+      updateFocusedStyles: () => {},
+      updateSessionDisplay: () => {},
+      updateHeader: () => {},
+    } as any);
   });
 
   it("supports search", async () => {
@@ -280,6 +298,15 @@ describe("ui modules with mocked blessed", () => {
     expect(ctx.selectedProjectIndex).toBe(0);
     input.pressKey("enter");
     expect(ctx.searchActive).toBe(false);
+
+    ctx.mode = "tmux";
+    ctx.tmuxSessions = [{ name: "tm1", currentCommand: "bash" } as any];
+    search.startSearch(ctx as any, runtime);
+    const input2 = created.filter((e) => e.__type === "textbox").at(-1)!;
+    input2.value = "tm1";
+    input2.emit("keypress", "", {});
+    await new Promise((r) => setTimeout(r, 0));
+    input2.pressKey("escape");
   });
 
   it("handles modals", () => {
@@ -345,6 +372,14 @@ describe("ui modules with mocked blessed", () => {
       s1: { name: "s1", projectId: "p1", createdAt: "now" } as any,
     };
     projects.deleteSelectedProject(ctx as any, runtime);
+
+    process.env.RESUMER_COMMANDS = "claude --x,codex --y";
+    try {
+      const cmds = projects.getConfiguredCommands();
+      expect(cmds.length).toBe(2);
+    } finally {
+      delete process.env.RESUMER_COMMANDS;
+    }
   });
 
   it("runs res/tmux actions and bindings", () => {
@@ -371,12 +406,22 @@ describe("ui modules with mocked blessed", () => {
     } as any;
 
     actionsRes.attachSelectedSession(ctx as any, runtime);
+    actionsRes.deleteSelectedSession(ctx as any, runtime);
+    actionsRes.unlinkSelectedSession(ctx as any, runtime);
     actionsTmux.copySelectedTmuxSessionName(ctx as any, runtime);
     actionsTmux.viewSelectedCodexSession(ctx as any, runtime);
     actionsTmux.viewSelectedClaudeSession(ctx as any, runtime);
 
     bindings.bindKeyHandlers(ctx as any, runtime);
     (ctx.screen as any).pressKey("tab");
+    (ctx.screen as any).pressKey("1");
+    (ctx.screen as any).pressKey("2");
+    (ctx.screen as any).pressKey("3");
+    (ctx.screen as any).pressKey("4");
+    (ctx.screen as any).pressKey("m");
+    (ctx.screen as any).pressKey("r");
+    (ctx.screen as any).pressKey("?");
+    (ctx.projectsBox as any).pressKey("enter");
   });
 
   it("runs picker", async () => {
@@ -399,5 +444,11 @@ describe("ui modules with mocked blessed", () => {
       if (stdinDesc) Object.defineProperty(process.stdin, "isTTY", stdinDesc);
       if (stdoutDesc) Object.defineProperty(process.stdout, "isTTY", stdoutDesc);
     }
+  });
+
+  it("handles header URL events", () => {
+    const ctx = makeCtx();
+    (ctx.headerUrl as any).emit("mouseover");
+    (ctx.headerUrl as any).emit("mouseout");
   });
 });
