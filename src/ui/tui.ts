@@ -157,9 +157,9 @@ function stateIndicator(lastMessageType: "user" | "assistant" | "exited" | undef
   }
 
   if (isSelected) {
-    return `{${color}-bg}{black-fg} ${glyph} {/}`;
+    return `{${color}-bg} {black-fg}${glyph}{/black-fg} {/${color}-bg}`;
   }
-  return ` {${color}-fg}${glyph}{/} `;
+  return ` {${color}-fg}${glyph}{/${color}-fg} `;
 }
 
 function codexSessionLabel(info: CodexSessionSummary, isSelected: boolean = false): string {
