@@ -146,7 +146,7 @@ function stateIndicator(lastMessageType: "user" | "assistant" | "exited" | undef
     glyph = "◷"; // LLM is working (clock)
     color = modeColors.codex;
   } else if (lastMessageType === "assistant") {
-    glyph = "⚇"; // Waiting for user (face with eyes)
+    glyph = "🚹"; // Waiting for user (person symbol)
     color = modeColors.tmux;
   } else if (lastMessageType === "exited") {
     glyph = "×"; // Session exited
@@ -157,9 +157,9 @@ function stateIndicator(lastMessageType: "user" | "assistant" | "exited" | undef
   }
 
   if (isSelected) {
-    return `{${color}-bg}{black-fg} ${glyph} {/}`;
+    return `{${color}-bg}{black-fg} ${glyph}{/}`;
   }
-  return `{${color}-fg}${glyph}{/}`;
+  return ` {${color}-fg}${glyph}{/}`;
 }
 
 function codexSessionLabel(info: CodexSessionSummary, isSelected: boolean = false): string {
