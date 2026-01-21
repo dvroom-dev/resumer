@@ -7,15 +7,22 @@ import { disambiguateCommands, getBaseCommand, shortTimestamp, stateIndicator, t
 import type { TuiContext } from "./tui-types.ts";
 import { getSelectedIndex } from "./tui-utils.ts";
 
+const knownShells = new Set(["bash", "zsh", "fish", "sh", "nu", "tcsh", "csh"]);
+
+function resolveCommandHint(session: SessionRecord, tmuxInfo?: TmuxSessionInfo): string {
+  return session.command?.trim() || tmuxInfo?.currentCommand?.trim() || "";
+}
+
 function getLastMessageForSession(
   selectedProject: Project | null,
   session: SessionRecord,
   claudeSessions: ClaudeSessionSummary[],
   codexSessions: CodexSessionSummary[],
+  tmuxInfo?: TmuxSessionInfo,
 ): string | null {
   const project = selectedProject;
   if (!project) return null;
-  const cmd = session.command?.toLowerCase() ?? "";
+  const cmd = resolveCommandHint(session, tmuxInfo).toLowerCase();
 
   if (cmd.includes("claude")) {
     // Find most recent claude session for this project
@@ -45,10 +52,11 @@ function getSessionStateIndicator(
   session: SessionRecord,
   claudeSessions: ClaudeSessionSummary[],
   codexSessions: CodexSessionSummary[],
+  tmuxInfo?: TmuxSessionInfo,
 ): string {
   const project = selectedProject;
   if (!project) return "";
-  const cmd = session.command?.toLowerCase() ?? "";
+  const cmd = resolveCommandHint(session, tmuxInfo).toLowerCase();
 
   if (cmd.includes("claude")) {
     const projectClaude = claudeSessions.filter(
@@ -82,8 +90,9 @@ function generateExpandedSessionLines(
   const indent = "  ";
   const c = colors.secondary;
 
-  const stateInd = getSessionStateIndicator(selectedProject, session, claudeSessions, codexSessions);
-  lines.push(`${stateInd}{bold}${session.command?.trim() || "(shell)"}{/bold}`);
+  const stateInd = getSessionStateIndicator(selectedProject, session, claudeSessions, codexSessions, tmuxInfo);
+  const headerCmd = session.command?.trim() || tmuxInfo?.currentCommand?.trim() || "(shell)";
+  lines.push(`${stateInd}{bold}${headerCmd}{/bold}`);
 
   // tmux session name
   lines.push(`${indent}{gray-fg}tmux:{/gray-fg} {${c}-fg}${session.name}{/}`);
@@ -121,7 +130,7 @@ function generateExpandedSessionLines(
   }
 
   // Last message from claude/codex
-  const lastMsg = getLastMessageForSession(selectedProject, session, claudeSessions, codexSessions);
+  const lastMsg = getLastMessageForSession(selectedProject, session, claudeSessions, codexSessions, tmuxInfo);
   if (lastMsg) {
     lines.push(`${indent}{gray-fg}last prompt:{/gray-fg} ${truncate(lastMsg, 70)}`);
   }
@@ -192,13 +201,26 @@ function generateSessionItems(ctx: TuiContext): string[] {
         session,
         ctx.claudeSessions,
         ctx.codexSessions,
+        tmuxInfo,
       );
-      const displayCmd = disambiguated.get(session.name) ?? getBaseCommand(session.command);
+      const sessionCmd = session.command?.trim();
+      let displayCmd = sessionCmd ? disambiguated.get(session.name) : undefined;
+      if (!displayCmd) {
+        if (sessionCmd) {
+          displayCmd = getBaseCommand(sessionCmd);
+        } else if (tmuxInfo?.currentCommand?.trim()) {
+          const base = getBaseCommand(tmuxInfo.currentCommand.trim());
+          displayCmd = knownShells.has(base) ? "(shell)" : base;
+        } else {
+          displayCmd = "(shell)";
+        }
+      }
       const lastMsg = getLastMessageForSession(
         ctx.selectedProject,
         session,
         ctx.claudeSessions,
         ctx.codexSessions,
+        tmuxInfo,
       );
       const msgPart = lastMsg ? ` {gray-fg}│{/gray-fg} {gray-fg}${truncate(lastMsg, 60)}{/gray-fg}` : "";
 

@@ -63,16 +63,25 @@ function getLastMessageType(sessionFile: string): "user" | "assistant" | undefin
   try {
     const tail = readFileTail(sessionFile, 256 * 1024);
     const lines = tail.split("\n").filter((l) => l.trim());
-    // Find the last meaningful item
-    // All idle session files are waiting on user to resume - the LLM isn't actively running
     for (let i = lines.length - 1; i >= 0; i--) {
       const parsed = safeJsonParse(lines[i]);
       if (!parsed || !isObject(parsed)) continue;
       const type = typeof parsed.type === "string" ? parsed.type : "";
 
-      // Any event_msg or response_item means session exists - it's waiting on user to resume
-      if (type === "event_msg" || type === "response_item") {
-        return "assistant"; // Session is idle, waiting on user to resume
+      if (type === "response_item" && isObject(parsed.payload)) {
+        const payload = parsed.payload;
+        const payloadType = typeof payload.type === "string" ? payload.type : "";
+        const role = typeof payload.role === "string" ? payload.role : "";
+        if (payloadType === "message" && (role === "user" || role === "assistant")) {
+          return role;
+        }
+      }
+
+      if (type === "event_msg" && isObject(parsed.payload)) {
+        const payload = parsed.payload;
+        const payloadType = typeof payload.type === "string" ? payload.type : "";
+        if (payloadType === "user_message") return "user";
+        if (payloadType === "assistant_message") return "assistant";
       }
     }
   } catch {
@@ -225,4 +234,3 @@ export function formatCodexSessionDetails(session: CodexSessionSummary): string 
   }
   return lines.join("\n");
 }
-

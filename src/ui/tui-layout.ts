@@ -52,12 +52,20 @@ export function createTuiLayout() {
     }
   });
 
-  const projectsBox = blessed.list({
+  const body = blessed.box({
     parent: screen,
     top: 1,
     left: 0,
     width: "100%",
-    height: "30%",
+    height: "100%-2",
+  });
+
+  const projectsBox = blessed.list({
+    parent: body,
+    top: 0,
+    left: 0,
+    width: "100%",
+    height: "50%",
     keys: true,
     vi: true,
     mouse: true,
@@ -72,11 +80,11 @@ export function createTuiLayout() {
   });
 
   const sessionsBox = blessed.list({
-    parent: screen,
-    top: "30%+1",
+    parent: body,
+    top: "50%",
     left: 0,
     width: "100%",
-    height: "70%-2",
+    height: "50%",
     keys: true,
     vi: true,
     mouse: true,
@@ -91,11 +99,11 @@ export function createTuiLayout() {
   });
 
   const tmuxBox = blessed.list({
-    parent: screen,
-    top: 1,
+    parent: body,
+    top: 0,
     left: 0,
     width: "100%",
-    height: "100%-2",
+    height: "100%",
     keys: true,
     vi: true,
     mouse: true,
