@@ -138,7 +138,8 @@ function shortTimestamp(iso: string): string {
 }
 
 // State indicator: user = waiting on LLM, assistant = waiting on user, exited = session ended
-function stateIndicator(lastMessageType: "user" | "assistant" | "exited" | undefined, isSelected: boolean = false): string {
+// showBackground: only true when panel is focused AND item is selected
+function stateIndicator(lastMessageType: "user" | "assistant" | "exited" | undefined, showBackground: boolean = false): string {
   let glyph: string;
   let color: string;
 
@@ -156,7 +157,7 @@ function stateIndicator(lastMessageType: "user" | "assistant" | "exited" | undef
     color = "gray";
   }
 
-  if (isSelected) {
+  if (showBackground) {
     return `{${color}-bg} {#000000-fg}${glyph}{/#000000-fg} {/${color}-bg}`;
   }
   return ` {${color}-fg}${glyph}{/${color}-fg} `;
@@ -639,10 +640,13 @@ export async function runMainTui(args: {
     }
 
     // Get state indicator for a res session (based on claude/codex session state)
+    // showBackground: only true when sessions panel is focused AND item is selected
     function getSessionStateIndicator(s: SessionRecord, isSelected: boolean = false): string {
       const project = selectedProject;
       if (!project) return "";
       const cmd = s.command?.toLowerCase() ?? "";
+      // Only show background when sessions panel is focused AND item is selected
+      const showBackground = isSelected && focused === "sessions";
 
       if (cmd.includes("claude")) {
         const projectClaude = claudeSessions.filter(
@@ -650,7 +654,7 @@ export async function runMainTui(args: {
         );
         if (projectClaude.length > 0) {
           projectClaude.sort((a, b) => (b.lastActivityAt ?? "").localeCompare(a.lastActivityAt ?? ""));
-          return stateIndicator(projectClaude[0].lastMessageType, isSelected);
+          return stateIndicator(projectClaude[0].lastMessageType, showBackground);
         }
       }
 
@@ -660,7 +664,7 @@ export async function runMainTui(args: {
         );
         if (projectCodex.length > 0) {
           projectCodex.sort((a, b) => (b.lastActivityAt ?? "").localeCompare(a.lastActivityAt ?? ""));
-          return stateIndicator(projectCodex[0].lastMessageType, isSelected);
+          return stateIndicator(projectCodex[0].lastMessageType, showBackground);
         }
       }
 
