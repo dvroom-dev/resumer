@@ -106,10 +106,10 @@ export function stateIndicator(lastMessageType: "user" | "assistant" | "exited" 
     color = modeColors.tmux;
   } else if (lastMessageType === "exited") {
     glyph = "×"; // Session exited
-    color = "gray";
+    color = colors.error; // Red
   } else {
     glyph = "○"; // Unknown state
-    color = "gray";
+    color = modeColors.claude; // Yellow
   }
 
   return `{${color}-bg}{#000000-fg} ${glyph} {/#000000-fg}{/${color}-bg}`;

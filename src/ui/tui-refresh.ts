@@ -60,10 +60,23 @@ export function refreshResMode(ctx: TuiContext, runtime: TuiRuntime): void {
   ctx.claudeSessions = ctx.actions.listClaudeSessions();
   ctx.codexSessions = ctx.actions.listCodexSessions();
 
+  // Calculate box width for right-justifying indicators
+  const boxWidth = (ctx.projectsBox as any).width;
+  const totalWidth = (typeof boxWidth === "number" ? boxWidth : 80) - 3; // minus borders and scrollbar
+  const indicatorColumnWidth = 16; // 5 indicators * 3 chars + 1 for "…" or space
+
   const items = ctx.projects.map((p) => {
     const indicators = getProjectSessionIndicators(ctx, p.id);
     const abbrevPath = abbreviatePath(p.path);
-    return `${indicators}{bold}${p.name}{/bold} {gray-fg}${abbrevPath}{/}`;
+    // Use gray text (not bold) so it appears correctly when inactive
+    const leftContent = `{gray-fg}${p.name}{/gray-fg} {gray-fg}${abbrevPath}{/gray-fg}`;
+
+    // Calculate padding to right-justify indicators
+    const visibleLeft = `${p.name} ${abbrevPath}`.length;
+    const availableForPadding = totalWidth - visibleLeft - indicatorColumnWidth;
+    const padding = " ".repeat(Math.max(1, availableForPadding));
+
+    return `${leftContent}${padding}${indicators}`;
   });
   ctx.projectsBox.setItems(items);
 

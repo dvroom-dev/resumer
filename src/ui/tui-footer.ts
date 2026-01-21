@@ -121,13 +121,18 @@ export function updateFocusedStyles(ctx: TuiContext): void {
   (ctx.sessionsBox as any).style.border.fg = sessionsBorderColor;
 
   // Update selected item styles based on focus
-  const focusedSelected = { bg: modeColor, fg: "black", bold: true };
-  const projectsSelected = ctx.focused === "projects" ? focusedSelected : colors.selectedDim;
+  // When a panel is not focused, remove selection styling completely
+  if (ctx.focused === "projects") {
+    (ctx.projectsBox as any).style.selected.bg = modeColor;
+    (ctx.projectsBox as any).style.selected.fg = "black";
+    (ctx.projectsBox as any).style.selected.bold = true;
+  } else {
+    // Remove selection highlighting when not focused
+    delete (ctx.projectsBox as any).style.selected.bg;
+    delete (ctx.projectsBox as any).style.selected.fg;
+    delete (ctx.projectsBox as any).style.selected.bold;
+  }
 
-  (ctx.projectsBox as any).style.selected.bg = projectsSelected.bg;
-  (ctx.projectsBox as any).style.selected.fg = projectsSelected.fg;
-
-  // When Projects is focused, don't show any selection styling in Sessions
   if (ctx.focused === "sessions") {
     (ctx.sessionsBox as any).style.selected.bg = modeColor;
     (ctx.sessionsBox as any).style.selected.fg = "black";
@@ -142,6 +147,15 @@ export function updateFocusedStyles(ctx: TuiContext): void {
   // Update scrollbar colors
   (ctx.projectsBox as any).style.scrollbar.bg = ctx.focused === "projects" ? modeColor : colors.borderDim;
   (ctx.sessionsBox as any).style.scrollbar.bg = ctx.focused === "sessions" ? modeColor : colors.borderDim;
+
+  // Deselect inactive panel to prevent blessed selection styling from overriding inline colors
+  if (ctx.focused === "projects") {
+    // Restore projects selection, deselect sessions
+    ctx.projectsBox.select(ctx.selectedProjectIndex);
+  } else {
+    // Deselect projects when sessions is focused
+    (ctx.projectsBox as any).selected = -1;
+  }
 
   // Update labels with focus indicator
   const projectsLabel =
