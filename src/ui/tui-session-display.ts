@@ -222,9 +222,12 @@ function generateSessionItems(ctx: TuiContext): string[] {
         ctx.codexSessions,
         tmuxInfo,
       );
-      const msgPart = lastMsg ? ` {gray-fg}▏${truncate(lastMsg, 60)}{/gray-fg}` : "";
+      const isActive = ctx.focused === "sessions";
+      // Command: white when active, gray when inactive. Last prompt: always gray.
+      const cmdText = isActive ? displayCmd : `{gray-fg}${displayCmd}{/gray-fg}`;
+      const msgPart = lastMsg ? ` {gray-fg}▌${truncate(lastMsg, 60)}{/gray-fg}` : "";
 
-      items.push(`${stateInd} {gray-fg}${displayCmd}{/gray-fg}${msgPart}`);
+      items.push(`${stateInd} ${cmdText}${msgPart}`);
       ctx.listIndexToSessionIndex.push(i);
     }
   }
@@ -242,7 +245,7 @@ export function updateSessionDisplay(ctx: TuiContext): void {
 
     const boxWidth = (ctx.sessionsBox as any).width;
     const totalWidth = (typeof boxWidth === "number" ? boxWidth : 80) - 3;
-    const indicatorWidth = 7;
+    const indicatorWidth = 10; // " collapse " with padding
     const contentWidth = totalWidth - indicatorWidth;
 
     for (let i = 0; i < items.length; i++) {
@@ -255,8 +258,8 @@ export function updateSessionDisplay(ctx: TuiContext): void {
       if (ctx.focused === "sessions" && isSelected && isValidSession) {
         const isExpanded = ctx.expandedSessionIndex === sessionIdx;
         const indicator = isExpanded
-          ? `{white-bg}{#000000-fg} cl{${colors.secondary}-fg}{underline}o{/underline}{/${colors.secondary}-fg}se {/#000000-fg}{/white-bg}`
-          : `{white-bg}{#000000-fg}  {${colors.secondary}-fg}{underline}o{/underline}{/${colors.secondary}-fg}pen {/#000000-fg}{/white-bg}`;
+          ? `{white-bg}{#000000-fg} colla{${colors.secondary}-fg}{underline}p{/underline}{/${colors.secondary}-fg}se {/#000000-fg}{/white-bg}`
+          : `{white-bg}{#000000-fg}   ex{${colors.secondary}-fg}{underline}p{/underline}{/${colors.secondary}-fg}and {/#000000-fg}{/white-bg}`;
         items[i] = paddedContent + indicator;
       } else {
         items[i] = paddedContent;

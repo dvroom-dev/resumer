@@ -4,58 +4,83 @@ import { abbreviatePath, claudeSessionLabel, codexSessionLabel, stateIndicator, 
 import type { TuiContext, TuiRuntime } from "./tui-types.ts";
 import { updateSessionDisplay } from "./tui-session-display.ts";
 
+// Resolve command from session or tmux info (same as Sessions panel)
+function resolveCommand(session: { command?: string }, tmuxInfo?: { currentCommand?: string }): string {
+  return session.command?.trim() || tmuxInfo?.currentCommand?.trim() || "";
+}
+
 // Get session state indicators for a project's claude/codex sessions (max 5, with "…" if more)
 // Each indicator is 3 chars wide visually (space + glyph + space), with 1 char space between
-// Only shows indicators for sessions that have claude/codex commands (matching Sessions panel behavior)
+// Matches Sessions panel behavior exactly
 function getProjectSessionIndicators(
   ctx: TuiContext,
   projectId: string,
+  allTmuxSessions: ReturnType<TuiContext["actions"]["listTmuxSessions"]>,
 ): string {
   const sessions = listSessionsForProject(ctx.state, projectId);
+  const projectPath = ctx.state.projects[projectId]?.path;
   const maxShow = 5;
   const indicatorWidth = 3; // Each indicator is " X " (3 chars visually)
   const spaceBetween = 1; // Space between indicators
   // Max width: 5 indicators * 3 chars + 4 spaces between + 1 for "…" = 20 chars
   const totalWidth = maxShow * indicatorWidth + (maxShow - 1) * spaceBetween + 1;
 
-  // Filter to only sessions with claude/codex commands
-  const relevantSessions: Array<{ messageType: "user" | "assistant" | "exited" | undefined }> = [];
+  if (!projectPath) return " ".repeat(totalWidth);
+
+  // Build tmux info map for this project's sessions
+  const tmuxInfoMap = new Map<string, (typeof allTmuxSessions)[0]>();
+  for (const info of allTmuxSessions) {
+    if (sessions.some((s) => s.name === info.name)) {
+      tmuxInfoMap.set(info.name, info);
+    }
+  }
+
+  // Collect indicators for all sessions attached to this project
+  const indicators: string[] = [];
 
   for (const session of sessions) {
-    const cmd = session.command?.toLowerCase() ?? "";
+    if (indicators.length >= maxShow) break;
+
+    const tmuxInfo = tmuxInfoMap.get(session.name);
+    const cmd = resolveCommand(session, tmuxInfo).toLowerCase();
 
     if (cmd.includes("claude")) {
       const projectClaude = ctx.claudeSessions.filter(
-        (cs) => cs.projectPath === ctx.state.projects[projectId]?.path || cs.cwd === ctx.state.projects[projectId]?.path,
+        (cs) => cs.projectPath === projectPath || cs.cwd === projectPath,
       );
       if (projectClaude.length > 0) {
         projectClaude.sort((a, b) => (b.lastActivityAt ?? "").localeCompare(a.lastActivityAt ?? ""));
-        relevantSessions.push({ messageType: projectClaude[0].lastMessageType });
+        indicators.push(stateIndicator(projectClaude[0].lastMessageType));
+      } else {
+        indicators.push(stateIndicator(undefined)); // Unknown state
       }
     } else if (cmd.includes("codex")) {
-      const projectCodex = ctx.codexSessions.filter((cs) => cs.cwd === ctx.state.projects[projectId]?.path);
+      const projectCodex = ctx.codexSessions.filter((cs) => cs.cwd === projectPath);
       if (projectCodex.length > 0) {
         projectCodex.sort((a, b) => (b.lastActivityAt ?? "").localeCompare(a.lastActivityAt ?? ""));
-        relevantSessions.push({ messageType: projectCodex[0].lastMessageType });
+        indicators.push(stateIndicator(projectCodex[0].lastMessageType));
+      } else {
+        indicators.push(stateIndicator(undefined)); // Unknown state
       }
+    } else {
+      // Non-claude/codex session - show unknown indicator
+      indicators.push(stateIndicator(undefined));
     }
-
-    if (relevantSessions.length >= maxShow) break;
   }
 
-  if (relevantSessions.length === 0) return " ".repeat(totalWidth);
+  if (indicators.length === 0) return " ".repeat(totalWidth);
 
   // Build indicators with spaces between them
-  const indicators = relevantSessions.slice(0, maxShow).map((s) => stateIndicator(s.messageType));
   const indicatorStr = indicators.join(" "); // Single space between indicators
 
   // Calculate visual width of indicators (each is 3 chars + 1 space between, except last)
   const indicatorVisualWidth = indicators.length * indicatorWidth + (indicators.length - 1) * spaceBetween;
 
-  // Add suffix for overflow
-  const hasMore = relevantSessions.length > maxShow || sessions.some((s) => {
-    const cmd = s.command?.toLowerCase() ?? "";
-    return (cmd.includes("claude") || cmd.includes("codex")) && !relevantSessions.some(() => true);
+  // Add suffix for overflow (more sessions than we can show)
+  const hasMore = sessions.length > maxShow && sessions.slice(maxShow).some((s) => {
+    const tmuxInfo = tmuxInfoMap.get(s.name);
+    const cmd = resolveCommand(s, tmuxInfo).toLowerCase();
+    return cmd.includes("claude") || cmd.includes("codex");
   });
   const suffix = hasMore ? "…" : " ";
 
@@ -66,23 +91,24 @@ function getProjectSessionIndicators(
   return padding + indicatorStr + suffix;
 }
 
-export function refreshResMode(ctx: TuiContext, runtime: TuiRuntime): void {
-  ctx.projects = listProjects(ctx.state);
-
-  // Pre-fetch claude and codex sessions for state indicators
-  ctx.claudeSessions = ctx.actions.listClaudeSessions();
-  ctx.codexSessions = ctx.actions.listCodexSessions();
+// Update project display items (called when focus changes or data changes)
+export function updateProjectDisplay(ctx: TuiContext): void {
+  const allTmuxSessions = ctx.actions.listTmuxSessions();
 
   // Calculate box width for right-justifying indicators
   const boxWidth = (ctx.projectsBox as any).width;
   const totalWidth = (typeof boxWidth === "number" ? boxWidth : 80) - 3; // minus borders and scrollbar
   const indicatorColumnWidth = 20; // 5 indicators * 3 chars + 4 spaces between + 1 for "…"
 
-  const items = ctx.projects.map((p) => {
-    const indicators = getProjectSessionIndicators(ctx, p.id);
+  const isActive = ctx.focused === "projects";
+
+  const items = ctx.projects.map((p, idx) => {
+    const indicators = getProjectSessionIndicators(ctx, p.id, allTmuxSessions);
     const abbrevPath = abbreviatePath(p.path);
-    // Use gray text (not bold) so it appears correctly when inactive
-    const leftContent = `{gray-fg}${p.name}{/gray-fg} {gray-fg}${abbrevPath}{/gray-fg}`;
+    // Project name: white when active OR when this is the selected project. Path: always gray.
+    const isSelected = idx === ctx.selectedProjectIndex;
+    const nameText = (isActive || isSelected) ? p.name : `{gray-fg}${p.name}{/gray-fg}`;
+    const leftContent = `${nameText} {gray-fg}${abbrevPath}{/gray-fg}`;
 
     // Calculate padding to right-justify indicators
     const visibleLeft = `${p.name} ${abbrevPath}`.length;
@@ -93,10 +119,22 @@ export function refreshResMode(ctx: TuiContext, runtime: TuiRuntime): void {
   });
   ctx.projectsBox.setItems(items);
 
-  ctx.selectedProjectIndex = Math.min(ctx.selectedProjectIndex, Math.max(0, ctx.projects.length - 1));
+  // Always restore selection after setItems (it resets to 0)
+  // The visual highlight is controlled separately in updateFocusedStyles
   ctx.projectsBox.select(ctx.selectedProjectIndex);
+}
 
+export function refreshResMode(ctx: TuiContext, runtime: TuiRuntime): void {
+  ctx.projects = listProjects(ctx.state);
+
+  // Pre-fetch claude and codex sessions for state indicators
+  ctx.claudeSessions = ctx.actions.listClaudeSessions();
+  ctx.codexSessions = ctx.actions.listCodexSessions();
+
+  ctx.selectedProjectIndex = Math.min(ctx.selectedProjectIndex, Math.max(0, ctx.projects.length - 1));
   ctx.selectedProject = ctx.projects[ctx.selectedProjectIndex] ?? null;
+
+  updateProjectDisplay(ctx);
   runtime.refreshSessionsForSelectedProject();
 }
 

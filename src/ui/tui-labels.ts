@@ -108,7 +108,7 @@ export function stateIndicator(lastMessageType: "user" | "assistant" | "exited" 
     glyph = "×"; // Session exited
     color = colors.error; // Red
   } else {
-    glyph = "○"; // Unknown state
+    glyph = "?"; // Unknown state
     color = modeColors.claude; // Yellow
   }
 

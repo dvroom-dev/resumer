@@ -45,10 +45,6 @@ export function bindKeyHandlers(ctx: TuiContext, runtime: TuiRuntime): void {
     if (ctx.modalClose) return;
     runtime.setMode("tmux");
   });
-  ctx.screen.key(["p"], () => {
-    if (ctx.modalClose) return;
-    runtime.setMode("res");
-  });
   ctx.screen.key(["1"], () => {
     if (ctx.modalClose) return;
     runtime.setMode("res");
@@ -82,7 +78,7 @@ export function bindKeyHandlers(ctx: TuiContext, runtime: TuiRuntime): void {
     if (ctx.searchActive) return;
     startSearch(ctx, runtime);
   });
-  ctx.screen.key(["o"], () => {
+  ctx.screen.key(["p"], () => {
     if (ctx.modalClose) return;
     if (ctx.mode !== "res" || ctx.focused !== "sessions") return;
     toggleExpandedSession(ctx);

@@ -1,4 +1,6 @@
 import { colors, getModeColor } from "./tui-constants.ts";
+import { updateProjectDisplay } from "./tui-refresh.ts";
+import { updateSessionDisplay } from "./tui-session-display.ts";
 import type { TuiContext, TuiRuntime } from "./tui-types.ts";
 
 export function styledKey(key: string, action: string): string {
@@ -88,7 +90,6 @@ export function updateFooter(ctx: TuiContext, runtime: TuiRuntime): void {
         [
           styledKey("?", "help"),
           styledKey("Enter", "attach"),
-          styledKey("o", "open/close"),
           styledKey("c", "create"),
           styledKey("d", "delete"),
           styledKey("l", "link"),
@@ -148,15 +149,6 @@ export function updateFocusedStyles(ctx: TuiContext): void {
   (ctx.projectsBox as any).style.scrollbar.bg = ctx.focused === "projects" ? modeColor : colors.borderDim;
   (ctx.sessionsBox as any).style.scrollbar.bg = ctx.focused === "sessions" ? modeColor : colors.borderDim;
 
-  // Deselect inactive panel to prevent blessed selection styling from overriding inline colors
-  if (ctx.focused === "projects") {
-    // Restore projects selection, deselect sessions
-    ctx.projectsBox.select(ctx.selectedProjectIndex);
-  } else {
-    // Deselect projects when sessions is focused
-    (ctx.projectsBox as any).selected = -1;
-  }
-
   // Update labels with focus indicator
   const projectsLabel =
     ctx.focused === "projects"
@@ -169,6 +161,10 @@ export function updateFocusedStyles(ctx: TuiContext): void {
 
   ctx.projectsBox.setLabel(projectsLabel);
   ctx.sessionsBox.setLabel(sessionsLabel);
+
+  // Regenerate items with correct text colors based on focus
+  updateProjectDisplay(ctx);
+  updateSessionDisplay(ctx);
 }
 
 export function flashFooter(ctx: TuiContext, runtime: TuiRuntime, message: string, ms = 1500): void {

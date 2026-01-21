@@ -242,7 +242,7 @@ export function showHelp(ctx: TuiContext, runtime: TuiRuntime): void {
   const sessionsKeys = [
     ["Tab", "Switch focus to Projects panel"],
     ["Enter", "Attach to selected session"],
-    ["o", "Expand/collapse session details"],
+    ["p", "Expand/collapse session details"],
     ["c", "Create new tmux session for selected project"],
     ["d", "Delete selected session (kills tmux session)"],
     ["l", "Link unlinked tmux session to selected project"],
