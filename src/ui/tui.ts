@@ -157,7 +157,7 @@ function stateIndicator(lastMessageType: "user" | "assistant" | "exited" | undef
   }
 
   if (isSelected) {
-    return `{${color}-bg} {black-fg}${glyph}{/black-fg} {/${color}-bg}`;
+    return `{${color}-bg} {#000000-fg}${glyph}{/#000000-fg} {/${color}-bg}`;
   }
   return ` {${color}-fg}${glyph}{/${color}-fg} `;
 }
@@ -775,10 +775,10 @@ export async function runMainTui(args: {
 
           if (isSelected && isValidSession) {
             const isExpanded = expandedSessionIndex === sessionIdx;
-            // White background, black text, with 'o' underlined in blue
+            // White background, black text, with 'o' underlined in blue - both 7 chars wide
             const indicator = isExpanded
-              ? `{white-bg}{black-fg} cl{${colors.secondary}-fg}{underline}o{/underline}{/black-fg}se {/}`
-              : `{white-bg}{black-fg} {${colors.secondary}-fg}{underline}o{/underline}{/black-fg}pen {/}`;
+              ? `{white-bg}{#000000-fg} cl{${colors.secondary}-fg}{underline}o{/underline}{/${colors.secondary}-fg}se {/#000000-fg}{/white-bg}`
+              : `{white-bg}{#000000-fg}  {${colors.secondary}-fg}{underline}o{/underline}{/${colors.secondary}-fg}pen {/#000000-fg}{/white-bg}`;
             items[i] = paddedContent + indicator;
           } else {
             items[i] = paddedContent;
@@ -2169,10 +2169,8 @@ export async function runMainTui(args: {
         expandedSessionIndex = sessionIdx;
       }
 
-      // Regenerate display and try to keep selection on the same session
+      // Regenerate display - find the first list index for this session
       const items = generateSessionItems();
-
-      // Find the first list index for this session
       let newListIdx = 0;
       for (let i = 0; i < listIndexToSessionIndex.length; i++) {
         if (listIndexToSessionIndex[i] === sessionIdx) {
@@ -2180,16 +2178,10 @@ export async function runMainTui(args: {
           break;
         }
       }
-
-      // Add indicator to selected item
-      const isExpanded = expandedSessionIndex === sessionIdx;
-      const indicator = isExpanded
-        ? `  {${colors.secondary}-fg}cl{underline}o{/underline}se{/}`
-        : `  {${colors.secondary}-fg}{underline}o{/underline}pen{/}`;
-      items[newListIdx] = items[newListIdx] + indicator;
-
-      sessionsBox.setItems(items);
       sessionsBox.select(newListIdx);
+
+      // Use updateSessionDisplay to add proper indicator with fixed-width columns
+      updateSessionDisplay();
       screen.render();
     });
     screen.key(["a"], () => {
