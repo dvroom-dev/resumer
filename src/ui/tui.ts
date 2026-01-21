@@ -146,7 +146,7 @@ function stateIndicator(lastMessageType: "user" | "assistant" | "exited" | undef
     glyph = "◷"; // LLM is working (clock)
     color = modeColors.codex;
   } else if (lastMessageType === "assistant") {
-    glyph = "🚹"; // Waiting for user (person symbol)
+    glyph = "☺"; // Waiting for user (smiling face)
     color = modeColors.tmux;
   } else if (lastMessageType === "exited") {
     glyph = "×"; // Session exited
