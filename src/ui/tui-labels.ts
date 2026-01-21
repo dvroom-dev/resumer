@@ -121,7 +121,7 @@ export function codexSessionLabel(info: CodexSessionSummary): string {
   const when = info.lastActivityAt ? `{gray-fg}·{/gray-fg} {${modeColors.res}-fg}${shortTimestamp(info.lastActivityAt)}{/} ` : "";
   const prompt = info.lastPrompt ? `{gray-fg}·{/gray-fg} {gray-fg}${truncate(info.lastPrompt, 80)}{/gray-fg}` : "";
   const id = info.id.length > 12 ? info.id.slice(0, 12) : info.id;
-  return `${state}{bold}${id}{/bold} ${cwd}${when}${prompt}`;
+  return `${state} {bold}${id}{/bold} ${cwd}${when}${prompt}`;
 }
 
 export function claudeSessionLabel(info: ClaudeSessionSummary): string {
@@ -130,5 +130,22 @@ export function claudeSessionLabel(info: ClaudeSessionSummary): string {
   const when = info.lastActivityAt ? `{gray-fg}·{/gray-fg} {${modeColors.res}-fg}${shortTimestamp(info.lastActivityAt)}{/} ` : "";
   const prompt = info.lastPrompt ? `{gray-fg}·{/gray-fg} {gray-fg}${truncate(info.lastPrompt, 80)}{/gray-fg}` : "";
   const id = info.id.length > 12 ? info.id.slice(0, 12) : info.id;
-  return `${state}{bold}${id}{/bold} ${project}${when}${prompt}`;
+  return `${state} {bold}${id}{/bold} ${project}${when}${prompt}`;
+}
+
+// Abbreviate paths with more than 4 parts: show first 2 and last dir in full,
+// abbreviate middle dirs to first letter. e.g. /home/user/a/b/c/project -> /home/user/a/b/c/project (5 parts)
+// /home/user/projects/deep/nested/stuff/myproject -> /home/user/p/d/n/s/myproject
+export function abbreviatePath(path: string): string {
+  const parts = path.split("/").filter((p) => p.length > 0);
+  if (parts.length <= 4) return path;
+
+  // Keep first 2 dirs, abbreviate middle, keep last dir
+  const first2 = parts.slice(0, 2);
+  const middle = parts.slice(2, -1);
+  const last = parts[parts.length - 1];
+
+  const abbreviated = middle.map((p) => p[0] || p);
+  const prefix = path.startsWith("/") ? "/" : "";
+  return prefix + [...first2, ...abbreviated, last].join("/");
 }

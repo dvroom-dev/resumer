@@ -92,7 +92,7 @@ function generateExpandedSessionLines(
 
   const stateInd = getSessionStateIndicator(selectedProject, session, claudeSessions, codexSessions, tmuxInfo);
   const headerCmd = session.command?.trim() || tmuxInfo?.currentCommand?.trim() || "(shell)";
-  lines.push(`${stateInd}{bold}${headerCmd}{/bold}`);
+  lines.push(`${stateInd} {gray-fg}${headerCmd}{/gray-fg}`);
 
   // tmux session name
   lines.push(`${indent}{gray-fg}tmux:{/gray-fg} {${c}-fg}${session.name}{/}`);
@@ -222,9 +222,9 @@ function generateSessionItems(ctx: TuiContext): string[] {
         ctx.codexSessions,
         tmuxInfo,
       );
-      const msgPart = lastMsg ? ` {gray-fg}│{/gray-fg} {gray-fg}${truncate(lastMsg, 60)}{/gray-fg}` : "";
+      const msgPart = lastMsg ? ` {gray-fg}▏${truncate(lastMsg, 60)}{/gray-fg}` : "";
 
-      items.push(`${stateInd}{bold}${displayCmd}{/bold}${msgPart}`);
+      items.push(`${stateInd} {gray-fg}${displayCmd}{/gray-fg}${msgPart}`);
       ctx.listIndexToSessionIndex.push(i);
     }
   }

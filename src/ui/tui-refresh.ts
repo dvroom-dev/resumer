@@ -1,12 +1,70 @@
 import { listProjects, listSessionsForProject } from "../state.ts";
 import { modeColors } from "./tui-constants.ts";
-import { claudeSessionLabel, codexSessionLabel, tmuxSessionLabel } from "./tui-labels.ts";
+import { abbreviatePath, claudeSessionLabel, codexSessionLabel, stateIndicator, tmuxSessionLabel } from "./tui-labels.ts";
 import type { TuiContext, TuiRuntime } from "./tui-types.ts";
 import { updateSessionDisplay } from "./tui-session-display.ts";
 
+// Get session state indicators for a project's sessions (max 5, with "…" if more)
+// Each indicator is 3 chars wide visually (space + glyph + space)
+// Total column width: 5 * 3 + 1 (for "…" or space) = 16 chars
+function getProjectSessionIndicators(
+  ctx: TuiContext,
+  projectId: string,
+): string {
+  const sessions = listSessionsForProject(ctx.state, projectId);
+  const maxShow = 5;
+  const indicatorWidth = 3; // Each indicator is " X " (3 chars visually)
+  const totalWidth = maxShow * indicatorWidth + 1; // +1 for "…" or trailing space
+
+  if (sessions.length === 0) return " ".repeat(totalWidth);
+
+  const indicators: string[] = [];
+
+  for (let i = 0; i < Math.min(sessions.length, maxShow); i++) {
+    const session = sessions[i];
+    const cmd = session.command?.toLowerCase() ?? "";
+
+    let messageType: "user" | "assistant" | "exited" | undefined;
+
+    if (cmd.includes("claude")) {
+      const projectClaude = ctx.claudeSessions.filter(
+        (cs) => cs.projectPath === ctx.state.projects[projectId]?.path || cs.cwd === ctx.state.projects[projectId]?.path,
+      );
+      if (projectClaude.length > 0) {
+        projectClaude.sort((a, b) => (b.lastActivityAt ?? "").localeCompare(a.lastActivityAt ?? ""));
+        messageType = projectClaude[0].lastMessageType;
+      }
+    } else if (cmd.includes("codex")) {
+      const projectCodex = ctx.codexSessions.filter((cs) => cs.cwd === ctx.state.projects[projectId]?.path);
+      if (projectCodex.length > 0) {
+        projectCodex.sort((a, b) => (b.lastActivityAt ?? "").localeCompare(a.lastActivityAt ?? ""));
+        messageType = projectCodex[0].lastMessageType;
+      }
+    }
+
+    indicators.push(stateIndicator(messageType));
+  }
+
+  const indicatorStr = indicators.join("");
+  const suffix = sessions.length > maxShow ? "…" : " ";
+  // Pad remaining slots with spaces (3 chars per empty slot)
+  const emptySlots = maxShow - indicators.length;
+  const padding = " ".repeat(emptySlots * indicatorWidth);
+  return indicatorStr + padding + suffix;
+}
+
 export function refreshResMode(ctx: TuiContext, runtime: TuiRuntime): void {
   ctx.projects = listProjects(ctx.state);
-  const items = ctx.projects.map((p) => `${p.name} {gray-fg}${p.path}{/}`);
+
+  // Pre-fetch claude and codex sessions for state indicators
+  ctx.claudeSessions = ctx.actions.listClaudeSessions();
+  ctx.codexSessions = ctx.actions.listCodexSessions();
+
+  const items = ctx.projects.map((p) => {
+    const indicators = getProjectSessionIndicators(ctx, p.id);
+    const abbrevPath = abbreviatePath(p.path);
+    return `${indicators}{bold}${p.name}{/bold} {gray-fg}${abbrevPath}{/}`;
+  });
   ctx.projectsBox.setItems(items);
 
   ctx.selectedProjectIndex = Math.min(ctx.selectedProjectIndex, Math.max(0, ctx.projects.length - 1));
