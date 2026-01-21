@@ -569,15 +569,23 @@ export async function runMainTui(args: {
       (sessionsBox as any).style.border.fg = sessionsBorderColor;
 
       // Update selected item styles based on focus
-      const focusedSelected = { bg: modeColor, fg: "black" };
+      const focusedSelected = { bg: modeColor, fg: "black", bold: true };
       const projectsSelected = focused === "projects" ? focusedSelected : colors.selectedDim;
-      // When Projects is focused, don't show any selection in Sessions
-      const sessionsSelected = focused === "sessions" ? focusedSelected : { bg: "default", fg: "default" };
 
       (projectsBox as any).style.selected.bg = projectsSelected.bg;
       (projectsBox as any).style.selected.fg = projectsSelected.fg;
-      (sessionsBox as any).style.selected.bg = sessionsSelected.bg;
-      (sessionsBox as any).style.selected.fg = sessionsSelected.fg;
+
+      // When Projects is focused, don't show any selection styling in Sessions
+      if (focused === "sessions") {
+        (sessionsBox as any).style.selected.bg = modeColor;
+        (sessionsBox as any).style.selected.fg = "black";
+        (sessionsBox as any).style.selected.bold = true;
+      } else {
+        // Remove selection highlighting when not focused
+        delete (sessionsBox as any).style.selected.bg;
+        delete (sessionsBox as any).style.selected.fg;
+        delete (sessionsBox as any).style.selected.bold;
+      }
 
       // Update scrollbar colors
       (projectsBox as any).style.scrollbar.bg = focused === "projects" ? modeColor : colors.borderDim;
@@ -761,7 +769,7 @@ export async function runMainTui(args: {
         const indicatorWidth = 7; // " open " or " close"
         const contentWidth = totalWidth - indicatorWidth;
 
-        // Format all items to fixed width, add indicator only to selected
+        // Format all items to fixed width, add indicator only when sessions panel is focused
         for (let i = 0; i < items.length; i++) {
           const sessionIdx = listIndexToSessionIndex[i];
           const isSelected = i === selectedListIdx;
@@ -770,7 +778,8 @@ export async function runMainTui(args: {
           // Truncate/pad content to fixed width
           const paddedContent = truncateToWidth(items[i], contentWidth);
 
-          if (isSelected && isValidSession) {
+          // Only show open/close indicator when sessions panel is focused
+          if (focused === "sessions" && isSelected && isValidSession) {
             const isExpanded = expandedSessionIndex === sessionIdx;
             // White background, black text, with 'o' underlined in blue - both 7 chars wide
             const indicator = isExpanded
@@ -2105,6 +2114,8 @@ export async function runMainTui(args: {
       (focused === "projects" ? projectsBox : sessionsBox).focus();
       updateFocusedStyles();
       updateFooter();
+      // Refresh sessions display to show/hide open/close indicator
+      if (sessions.length > 0) updateSessionDisplay();
       screen.render();
     });
 
@@ -2261,6 +2272,8 @@ export async function runMainTui(args: {
       sessionsBox.focus();
       updateFocusedStyles();
       updateFooter();
+      // Refresh sessions display to show open/close indicator
+      if (sessions.length > 0) updateSessionDisplay();
       screen.render();
     });
 
