@@ -23,8 +23,23 @@ type ClaudeHistoryLine = {
   display?: unknown;
 };
 
+const NO_PROMPT_PLACEHOLDER = "(no prompt yet)";
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object";
+}
+
+function isRealPrompt(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  if (trimmed.startsWith("!")) return false;
+
+  const first = trimmed.split(/\s+/)[0] ?? "";
+  if (first.startsWith("/") && first.length > 1 && !first.slice(1).includes("/")) {
+    return false;
+  }
+
+  return true;
 }
 
 function safeJsonParse(line: string): unknown {
@@ -67,6 +82,18 @@ function getLastMessageType(sessionFile: string): "user" | "assistant" | "exited
   try {
     const tail = readFileTail(sessionFile, 256 * 1024);
     const lines = tail.split("\n").filter((l) => l.trim());
+    const localCommandMarkers = [
+      "<bash-stdout>",
+      "<bash-input>",
+      "<local-command-caveat>",
+      "<local-command-stdout>",
+      "<command-name>",
+      "<command-message>",
+      "<command-args>",
+    ];
+
+    const isLocalCommandContent = (content: string): boolean =>
+      localCommandMarkers.some((marker) => content.includes(marker));
 
     // First pass: check last few user messages for /exit or Goodbye
     let userMsgCount = 0;
@@ -77,7 +104,11 @@ function getLastMessageType(sessionFile: string): "user" | "assistant" | "exited
       if (type === "user" && isObject(parsed.message)) {
         userMsgCount++;
         const content = parsed.message.content;
-        if (typeof content === "string" && (content.includes("/exit") || content.includes("Goodbye!"))) {
+        if (
+          typeof content === "string" &&
+          !isLocalCommandContent(content) &&
+          (content.includes("/exit") || content.includes("Goodbye!"))
+        ) {
           return "exited";
         }
       }
@@ -96,7 +127,7 @@ function getLastMessageType(sessionFile: string): "user" | "assistant" | "exited
           return "user"; // Tool result, LLM should respond
         }
         // Check if it's a local shell command (! command) - user ran something, waiting on user
-        if (typeof content === "string" && (content.includes("<bash-stdout>") || content.includes("<bash-input>") || content.includes("<local-command-caveat>"))) {
+        if (typeof content === "string" && isLocalCommandContent(content)) {
           return "assistant"; // User ran shell command, waiting on user
         }
         // Real user message, LLM should respond
@@ -106,7 +137,7 @@ function getLastMessageType(sessionFile: string): "user" | "assistant" | "exited
       if (type === "assistant" && isObject(parsed.message)) {
         const content = parsed.message.content;
         // Check if assistant made a tool call
-        if (Array.isArray(content) && content.some((c: any) => c?.type === "tool_use")) {
+        if (Array.isArray(content) && content.some((c: any) => c?.type === "tool_use" || c?.type === "thinking")) {
           return "user"; // Tool call, waiting for result, LLM is working
         }
         // No tool call, Claude finished - waiting for user
@@ -123,7 +154,7 @@ function encodeClaudeProjectDir(projectPath: string): string {
   // Claude stores projects under ".claude/projects" using a path-derived directory name like:
   // "/home/user/proj" -> "-home-user-proj"
   // We keep this heuristic intentionally simple and fall back if it doesn't exist.
-  return projectPath.replace(/[\\/]+/g, "-");
+  return projectPath.replace(/[\\/]+/g, "-").replace(/[^a-zA-Z0-9-]/g, "-");
 }
 
 function getClaudeHomeDir(): string | null {
@@ -227,6 +258,7 @@ export function listClaudeSessions(): ClaudeSessionSummary[] {
       projectPath?: string;
       lastTs: number;
       lastPrompt?: string;
+      lastPromptTs?: number;
       count: number;
     }
   >();
@@ -243,16 +275,26 @@ export function listClaudeSessions(): ClaudeSessionSummary[] {
     const display = typeof parsed.display === "string" ? parsed.display : undefined;
     if (!sessionId || !ts) continue;
 
+    const isValidPrompt = typeof display === "string" && isRealPrompt(display);
     const prev = byId.get(sessionId);
     if (!prev) {
-      byId.set(sessionId, { projectPath, lastTs: ts, lastPrompt: display, count: 1 });
+      byId.set(sessionId, {
+        projectPath,
+        lastTs: ts,
+        lastPrompt: isValidPrompt ? display : undefined,
+        lastPromptTs: isValidPrompt ? ts : undefined,
+        count: 1,
+      });
       continue;
     }
     prev.count++;
     if (ts >= prev.lastTs) {
       prev.lastTs = ts;
       if (projectPath) prev.projectPath = projectPath;
-      if (display) prev.lastPrompt = display;
+    }
+    if (isValidPrompt && (prev.lastPromptTs === undefined || ts >= prev.lastPromptTs)) {
+      prev.lastPrompt = display;
+      prev.lastPromptTs = ts;
     }
   }
 
@@ -260,12 +302,23 @@ export function listClaudeSessions(): ClaudeSessionSummary[] {
   for (const [id, info] of byId.entries()) {
     const sessionFile = findClaudeSessionFile(claudeHome, info.projectPath, id);
     const extra = sessionFile ? parseClaudeSessionFile(sessionFile) : {};
-    const lastMessageType = sessionFile ? getLastMessageType(sessionFile) : undefined;
+    let lastMessageType = sessionFile ? getLastMessageType(sessionFile) : undefined;
+    if (sessionFile && lastMessageType === "assistant") {
+      try {
+        const stat = fs.statSync(sessionFile);
+        const recentMs = 20_000;
+        if (Date.now() - stat.mtimeMs < recentMs) {
+          lastMessageType = "user";
+        }
+      } catch {
+        // ignore
+      }
+    }
     out.push({
       id,
       projectPath: info.projectPath,
       lastActivityAt: isoFromUnixMs(info.lastTs),
-      lastPrompt: info.lastPrompt,
+      lastPrompt: info.lastPrompt ?? NO_PROMPT_PLACEHOLDER,
       sessionFile,
       lastMessageType,
       ...extra,
@@ -293,4 +346,3 @@ export function formatClaudeSessionDetails(session: ClaudeSessionSummary): strin
   }
   return lines.join("\n");
 }
-

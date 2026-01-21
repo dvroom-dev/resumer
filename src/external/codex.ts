@@ -27,8 +27,23 @@ type CodexSessionMetaLine = {
   payload?: unknown;
 };
 
+const NO_PROMPT_PLACEHOLDER = "(no prompt yet)";
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object";
+}
+
+function isRealPrompt(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  if (trimmed.startsWith("!")) return false;
+
+  const first = trimmed.split(/\s+/)[0] ?? "";
+  if (first.startsWith("/") && first.length > 1 && !first.slice(1).includes("/")) {
+    return false;
+  }
+
+  return true;
 }
 
 function isoFromUnixSeconds(seconds: number): string {
@@ -67,6 +82,12 @@ function getLastMessageType(sessionFile: string): "user" | "assistant" | undefin
       const parsed = safeJsonParse(lines[i]);
       if (!parsed || !isObject(parsed)) continue;
       const type = typeof parsed.type === "string" ? parsed.type : "";
+
+      if (type === "event_msg" && isObject(parsed.payload)) {
+        const payload = parsed.payload;
+        const payloadType = typeof payload.type === "string" ? payload.type : "";
+        if (payloadType === "turn_aborted") return "assistant";
+      }
 
       if (type === "response_item" && isObject(parsed.payload)) {
         const payload = parsed.payload;
@@ -134,6 +155,7 @@ function buildLastPromptIndex(codexHome: string): Map<string, { ts: number; text
     const ts = typeof parsed.ts === "number" ? parsed.ts : null;
     const text = typeof parsed.text === "string" ? parsed.text : null;
     if (!sessionId || !ts || !text) continue;
+    if (!isRealPrompt(text)) continue;
     const prev = map.get(sessionId);
     if (!prev || ts >= prev.ts) map.set(sessionId, { ts, text });
   }
@@ -191,6 +213,7 @@ export function listCodexSessions(): CodexSessionSummary[] {
   if (!fs.existsSync(sessionsRoot) || !fs.statSync(sessionsRoot).isDirectory()) return [];
 
   const lastPrompt = buildLastPromptIndex(codexHome);
+  const recentActivityMs = 5 * 60 * 1000;
 
   const sessionFiles: string[] = [];
   walkFiles(sessionsRoot, sessionFiles, 5000);
@@ -201,11 +224,28 @@ export function listCodexSessions(): CodexSessionSummary[] {
     if (!parsed) continue;
     const last = lastPrompt.get(parsed.id);
     const lastActivityAt = last ? isoFromUnixSeconds(last.ts) : undefined;
-    const lastMessageType = getLastMessageType(filePath);
+    let lastMessageType = getLastMessageType(filePath);
+    if (lastMessageType === "user") {
+      let isRecent = false;
+      if (lastActivityAt) {
+        const lastMs = Date.parse(lastActivityAt);
+        if (!Number.isNaN(lastMs)) {
+          isRecent = Date.now() - lastMs < recentActivityMs;
+        }
+      } else {
+        try {
+          const stat = fs.statSync(filePath);
+          isRecent = Date.now() - stat.mtimeMs < recentActivityMs;
+        } catch {
+          // ignore
+        }
+      }
+      if (!isRecent) lastMessageType = "assistant";
+    }
     out.push({
       ...parsed,
       lastActivityAt,
-      lastPrompt: last?.text,
+      lastPrompt: last?.text ?? NO_PROMPT_PLACEHOLDER,
       lastMessageType,
     });
   }
