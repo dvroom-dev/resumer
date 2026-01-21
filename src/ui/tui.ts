@@ -138,21 +138,32 @@ function shortTimestamp(iso: string): string {
 }
 
 // State indicator: user = waiting on LLM, assistant = waiting on user, exited = session ended
-function stateIndicator(lastMessageType: "user" | "assistant" | "exited" | undefined): string {
+function stateIndicator(lastMessageType: "user" | "assistant" | "exited" | undefined, isSelected: boolean = false): string {
+  let glyph: string;
+  let color: string;
+
   if (lastMessageType === "user") {
-    return `{${modeColors.codex}-fg}◷{/}`; // LLM is working (clock)
+    glyph = "◷"; // LLM is working (clock)
+    color = modeColors.codex;
+  } else if (lastMessageType === "assistant") {
+    glyph = "⚇"; // Waiting for user (face with eyes)
+    color = modeColors.tmux;
+  } else if (lastMessageType === "exited") {
+    glyph = "×"; // Session exited
+    color = "gray";
+  } else {
+    glyph = "○"; // Unknown state
+    color = "gray";
   }
-  if (lastMessageType === "assistant") {
-    return `{${modeColors.tmux}-fg}☺{/}`; // Waiting for user (human)
+
+  if (isSelected) {
+    return `{${color}-bg}{black-fg} ${glyph} {/}`;
   }
-  if (lastMessageType === "exited") {
-    return `{gray-fg}×{/}`; // Session exited
-  }
-  return "{gray-fg}○{/}"; // Unknown state
+  return `{${color}-fg}${glyph}{/}`;
 }
 
-function codexSessionLabel(info: CodexSessionSummary): string {
-  const state = stateIndicator(info.lastMessageType);
+function codexSessionLabel(info: CodexSessionSummary, isSelected: boolean = false): string {
+  const state = stateIndicator(info.lastMessageType, isSelected);
   const cwd = info.cwd ? ` {gray-fg}${info.cwd}{/gray-fg}` : "";
   const when = info.lastActivityAt ? ` {gray-fg}·{/gray-fg} {${modeColors.res}-fg}${shortTimestamp(info.lastActivityAt)}{/}` : "";
   const prompt = info.lastPrompt ? ` {gray-fg}·{/gray-fg} {gray-fg}${truncate(info.lastPrompt, 80)}{/gray-fg}` : "";
@@ -160,8 +171,8 @@ function codexSessionLabel(info: CodexSessionSummary): string {
   return `${state} {bold}${id}{/bold}${cwd}${when}${prompt}`;
 }
 
-function claudeSessionLabel(info: ClaudeSessionSummary): string {
-  const state = stateIndicator(info.lastMessageType);
+function claudeSessionLabel(info: ClaudeSessionSummary, isSelected: boolean = false): string {
+  const state = stateIndicator(info.lastMessageType, isSelected);
   const project = info.projectPath ? ` {gray-fg}${info.projectPath}{/gray-fg}` : "";
   const when = info.lastActivityAt ? ` {gray-fg}·{/gray-fg} {${modeColors.res}-fg}${shortTimestamp(info.lastActivityAt)}{/}` : "";
   const prompt = info.lastPrompt ? ` {gray-fg}·{/gray-fg} {gray-fg}${truncate(info.lastPrompt, 80)}{/gray-fg}` : "";
@@ -628,7 +639,7 @@ export async function runMainTui(args: {
     }
 
     // Get state indicator for a res session (based on claude/codex session state)
-    function getSessionStateIndicator(s: SessionRecord): string {
+    function getSessionStateIndicator(s: SessionRecord, isSelected: boolean = false): string {
       const project = selectedProject;
       if (!project) return "";
       const cmd = s.command?.toLowerCase() ?? "";
@@ -639,7 +650,7 @@ export async function runMainTui(args: {
         );
         if (projectClaude.length > 0) {
           projectClaude.sort((a, b) => (b.lastActivityAt ?? "").localeCompare(a.lastActivityAt ?? ""));
-          return stateIndicator(projectClaude[0].lastMessageType) + " ";
+          return stateIndicator(projectClaude[0].lastMessageType, isSelected) + " ";
         }
       }
 
@@ -649,7 +660,7 @@ export async function runMainTui(args: {
         );
         if (projectCodex.length > 0) {
           projectCodex.sort((a, b) => (b.lastActivityAt ?? "").localeCompare(a.lastActivityAt ?? ""));
-          return stateIndicator(projectCodex[0].lastMessageType) + " ";
+          return stateIndicator(projectCodex[0].lastMessageType, isSelected) + " ";
         }
       }
 
@@ -668,6 +679,7 @@ export async function runMainTui(args: {
 
       const disambiguated = disambiguateCommands(sessions);
       const items: string[] = [];
+      let currentListIndex = 0;
 
       for (let i = 0; i < sessions.length; i++) {
         const s = sessions[i];
@@ -676,20 +688,24 @@ export async function runMainTui(args: {
 
         if (isExpanded) {
           // Expanded view - multiple lines
-          const expandedLines = generateExpandedSessionLines(s, tmuxInfo);
+          const firstLineSelected = currentListIndex === selectedListIndex;
+          const expandedLines = generateExpandedSessionLines(s, tmuxInfo, firstLineSelected);
           for (const line of expandedLines) {
             items.push(line);
             listIndexToSessionIndex.push(i);
+            currentListIndex++;
           }
         } else {
           // Collapsed view - single line
-          const stateInd = getSessionStateIndicator(s);
+          const isSelected = currentListIndex === selectedListIndex;
+          const stateInd = getSessionStateIndicator(s, isSelected);
           const displayCmd = disambiguated.get(s.name) ?? getBaseCommand(s.command);
           const lastMsg = getLastMessageForSession(s);
           const msgPart = lastMsg ? ` {gray-fg}│{/gray-fg} {gray-fg}${truncate(lastMsg, 60)}{/gray-fg}` : "";
 
           items.push(`${stateInd}{bold}${displayCmd}{/bold}${msgPart}`);
           listIndexToSessionIndex.push(i);
+          currentListIndex++;
         }
       }
 
@@ -777,13 +793,13 @@ export async function runMainTui(args: {
     }
 
     // Generate expanded view lines for a session
-    function generateExpandedSessionLines(s: SessionRecord, tmuxInfo: TmuxSessionInfo | undefined): string[] {
+    function generateExpandedSessionLines(s: SessionRecord, tmuxInfo: TmuxSessionInfo | undefined, isHeaderSelected: boolean = false): string[] {
       const lines: string[] = [];
       const indent = "  ";
       const c = colors.secondary;
 
       // Header line with state indicator
-      const stateInd = getSessionStateIndicator(s);
+      const stateInd = getSessionStateIndicator(s, isHeaderSelected);
       lines.push(`${stateInd}{bold}${s.command?.trim() || "(shell)"}{/bold}`);
 
       // tmux session name
@@ -910,18 +926,26 @@ export async function runMainTui(args: {
     function refreshCodexMode() {
       codexSessions = args.actions.listCodexSessions();
       tmuxBox.setLabel(` {${modeColors.codex}-fg}{bold}Codex Sessions{/bold}{/} `);
-      const items = codexSessions.map((s) => codexSessionLabel(s));
-      tmuxBox.setItems(items.length ? items : ["(no Codex sessions found)"]);
       selectedCodexIndex = Math.min(selectedCodexIndex, Math.max(0, codexSessions.length - 1));
+      updateCodexItems();
+    }
+
+    function updateCodexItems() {
+      const items = codexSessions.map((s, i) => codexSessionLabel(s, i === selectedCodexIndex));
+      tmuxBox.setItems(items.length ? items : ["(no Codex sessions found)"]);
       tmuxBox.select(selectedCodexIndex);
     }
 
     function refreshClaudeMode() {
       claudeSessions = args.actions.listClaudeSessions();
       tmuxBox.setLabel(` {${modeColors.claude}-fg}{bold}Claude Sessions{/bold}{/} `);
-      const items = claudeSessions.map((s) => claudeSessionLabel(s));
-      tmuxBox.setItems(items.length ? items : ["(no Claude sessions found)"]);
       selectedClaudeIndex = Math.min(selectedClaudeIndex, Math.max(0, claudeSessions.length - 1));
+      updateClaudeItems();
+    }
+
+    function updateClaudeItems() {
+      const items = claudeSessions.map((s, i) => claudeSessionLabel(s, i === selectedClaudeIndex));
+      tmuxBox.setItems(items.length ? items : ["(no Claude sessions found)"]);
       tmuxBox.select(selectedClaudeIndex);
     }
 
@@ -2222,6 +2246,21 @@ export async function runMainTui(args: {
       if (mode === "res" && sessions.length > 0) {
         updateSessionDisplay();
         screen.render();
+      }
+    });
+
+    tmuxBox.on("select item", (_: unknown, idx: number) => {
+      // Update display for codex/claude modes to show colored indicator on selected row
+      if (mode === "codex") {
+        selectedCodexIndex = idx;
+        updateCodexItems();
+        screen.render();
+      } else if (mode === "claude") {
+        selectedClaudeIndex = idx;
+        updateClaudeItems();
+        screen.render();
+      } else if (mode === "tmux") {
+        selectedTmuxIndex = idx;
       }
     });
 
