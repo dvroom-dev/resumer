@@ -138,8 +138,8 @@ function shortTimestamp(iso: string): string {
 }
 
 // State indicator: user = waiting on LLM, assistant = waiting on user, exited = session ended
-// showBackground: only true when panel is focused AND item is selected
-function stateIndicator(lastMessageType: "user" | "assistant" | "exited" | undefined, showBackground: boolean = false): string {
+// Always shows colored background with black glyph
+function stateIndicator(lastMessageType: "user" | "assistant" | "exited" | undefined): string {
   let glyph: string;
   let color: string;
 
@@ -157,14 +157,11 @@ function stateIndicator(lastMessageType: "user" | "assistant" | "exited" | undef
     color = "gray";
   }
 
-  if (showBackground) {
-    return `{${color}-bg} {#000000-fg}${glyph}{/#000000-fg} {/${color}-bg}`;
-  }
-  return ` {${color}-fg}${glyph}{/${color}-fg} `;
+  return `{${color}-bg}{#000000-fg} ${glyph} {/#000000-fg}{/${color}-bg}`;
 }
 
-function codexSessionLabel(info: CodexSessionSummary, isSelected: boolean = false): string {
-  const state = stateIndicator(info.lastMessageType, isSelected);
+function codexSessionLabel(info: CodexSessionSummary): string {
+  const state = stateIndicator(info.lastMessageType);
   const cwd = info.cwd ? `{gray-fg}${info.cwd}{/gray-fg} ` : "";
   const when = info.lastActivityAt ? `{gray-fg}·{/gray-fg} {${modeColors.res}-fg}${shortTimestamp(info.lastActivityAt)}{/} ` : "";
   const prompt = info.lastPrompt ? `{gray-fg}·{/gray-fg} {gray-fg}${truncate(info.lastPrompt, 80)}{/gray-fg}` : "";
@@ -172,8 +169,8 @@ function codexSessionLabel(info: CodexSessionSummary, isSelected: boolean = fals
   return `${state}{bold}${id}{/bold} ${cwd}${when}${prompt}`;
 }
 
-function claudeSessionLabel(info: ClaudeSessionSummary, isSelected: boolean = false): string {
-  const state = stateIndicator(info.lastMessageType, isSelected);
+function claudeSessionLabel(info: ClaudeSessionSummary): string {
+  const state = stateIndicator(info.lastMessageType);
   const project = info.projectPath ? `{gray-fg}${info.projectPath}{/gray-fg} ` : "";
   const when = info.lastActivityAt ? `{gray-fg}·{/gray-fg} {${modeColors.res}-fg}${shortTimestamp(info.lastActivityAt)}{/} ` : "";
   const prompt = info.lastPrompt ? `{gray-fg}·{/gray-fg} {gray-fg}${truncate(info.lastPrompt, 80)}{/gray-fg}` : "";
@@ -574,7 +571,8 @@ export async function runMainTui(args: {
       // Update selected item styles based on focus
       const focusedSelected = { bg: modeColor, fg: "black" };
       const projectsSelected = focused === "projects" ? focusedSelected : colors.selectedDim;
-      const sessionsSelected = focused === "sessions" ? focusedSelected : colors.selectedDim;
+      // When Projects is focused, don't show any selection in Sessions
+      const sessionsSelected = focused === "sessions" ? focusedSelected : { bg: "default", fg: "default" };
 
       (projectsBox as any).style.selected.bg = projectsSelected.bg;
       (projectsBox as any).style.selected.fg = projectsSelected.fg;
@@ -640,13 +638,10 @@ export async function runMainTui(args: {
     }
 
     // Get state indicator for a res session (based on claude/codex session state)
-    // showBackground: only true when sessions panel is focused AND item is selected
-    function getSessionStateIndicator(s: SessionRecord, isSelected: boolean = false): string {
+    function getSessionStateIndicator(s: SessionRecord): string {
       const project = selectedProject;
       if (!project) return "";
       const cmd = s.command?.toLowerCase() ?? "";
-      // Only show background when sessions panel is focused AND item is selected
-      const showBackground = isSelected && focused === "sessions";
 
       if (cmd.includes("claude")) {
         const projectClaude = claudeSessions.filter(
@@ -654,7 +649,7 @@ export async function runMainTui(args: {
         );
         if (projectClaude.length > 0) {
           projectClaude.sort((a, b) => (b.lastActivityAt ?? "").localeCompare(a.lastActivityAt ?? ""));
-          return stateIndicator(projectClaude[0].lastMessageType, showBackground);
+          return stateIndicator(projectClaude[0].lastMessageType);
         }
       }
 
@@ -664,7 +659,7 @@ export async function runMainTui(args: {
         );
         if (projectCodex.length > 0) {
           projectCodex.sort((a, b) => (b.lastActivityAt ?? "").localeCompare(a.lastActivityAt ?? ""));
-          return stateIndicator(projectCodex[0].lastMessageType, showBackground);
+          return stateIndicator(projectCodex[0].lastMessageType);
         }
       }
 
@@ -692,8 +687,7 @@ export async function runMainTui(args: {
 
         if (isExpanded) {
           // Expanded view - multiple lines
-          const firstLineSelected = currentListIndex === selectedListIndex;
-          const expandedLines = generateExpandedSessionLines(s, tmuxInfo, firstLineSelected);
+          const expandedLines = generateExpandedSessionLines(s, tmuxInfo);
           for (const line of expandedLines) {
             items.push(line);
             listIndexToSessionIndex.push(i);
@@ -701,8 +695,7 @@ export async function runMainTui(args: {
           }
         } else {
           // Collapsed view - single line
-          const isSelected = currentListIndex === selectedListIndex;
-          const stateInd = getSessionStateIndicator(s, isSelected);
+          const stateInd = getSessionStateIndicator(s);
           const displayCmd = disambiguated.get(s.name) ?? getBaseCommand(s.command);
           const lastMsg = getLastMessageForSession(s);
           const msgPart = lastMsg ? ` {gray-fg}│{/gray-fg} {gray-fg}${truncate(lastMsg, 60)}{/gray-fg}` : "";
@@ -797,13 +790,13 @@ export async function runMainTui(args: {
     }
 
     // Generate expanded view lines for a session
-    function generateExpandedSessionLines(s: SessionRecord, tmuxInfo: TmuxSessionInfo | undefined, isHeaderSelected: boolean = false): string[] {
+    function generateExpandedSessionLines(s: SessionRecord, tmuxInfo: TmuxSessionInfo | undefined): string[] {
       const lines: string[] = [];
       const indent = "  ";
       const c = colors.secondary;
 
       // Header line with state indicator
-      const stateInd = getSessionStateIndicator(s, isHeaderSelected);
+      const stateInd = getSessionStateIndicator(s);
       lines.push(`${stateInd}{bold}${s.command?.trim() || "(shell)"}{/bold}`);
 
       // tmux session name
@@ -935,7 +928,7 @@ export async function runMainTui(args: {
     }
 
     function updateCodexItems() {
-      const items = codexSessions.map((s, i) => codexSessionLabel(s, i === selectedCodexIndex));
+      const items = codexSessions.map((s) => codexSessionLabel(s));
       tmuxBox.setItems(items.length ? items : ["(no Codex sessions found)"]);
       tmuxBox.select(selectedCodexIndex);
     }
@@ -948,7 +941,7 @@ export async function runMainTui(args: {
     }
 
     function updateClaudeItems() {
-      const items = claudeSessions.map((s, i) => claudeSessionLabel(s, i === selectedClaudeIndex));
+      const items = claudeSessions.map((s) => claudeSessionLabel(s));
       tmuxBox.setItems(items.length ? items : ["(no Claude sessions found)"]);
       tmuxBox.select(selectedClaudeIndex);
     }
@@ -2246,15 +2239,11 @@ export async function runMainTui(args: {
     });
 
     tmuxBox.on("select item", (_: unknown, idx: number) => {
-      // Update display for codex/claude modes to show colored indicator on selected row
+      // Track selection index for each mode
       if (mode === "codex") {
         selectedCodexIndex = idx;
-        updateCodexItems();
-        screen.render();
       } else if (mode === "claude") {
         selectedClaudeIndex = idx;
-        updateClaudeItems();
-        screen.render();
       } else if (mode === "tmux") {
         selectedTmuxIndex = idx;
       }
