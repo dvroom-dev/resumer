@@ -792,7 +792,13 @@ export async function runMainTui(args: {
         }
 
         sessionsBox.setItems(items);
-        sessionsBox.select(selectedListIdx);
+        // Only show selection highlight when sessions panel is focused
+        if (focused === "sessions") {
+          sessionsBox.select(selectedListIdx);
+        } else {
+          // Deselect to prevent any selection styling
+          (sessionsBox as any).selected = -1;
+        }
       } finally {
         updatingSessionDisplay = false;
       }
