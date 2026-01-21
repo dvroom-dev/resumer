@@ -75,7 +75,6 @@ export function createTuiLayout() {
       border: { fg: colors.border },
       selected: { bg: modeColors.res, fg: "black", bold: true },
     },
-    scrollbar: { style: { bg: modeColors.res } },
     tags: true,
   });
 

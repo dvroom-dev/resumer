@@ -9,6 +9,33 @@ function resolveCommand(session: { command?: string }, tmuxInfo?: { currentComma
   return session.command?.trim() || tmuxInfo?.currentCommand?.trim() || "";
 }
 
+function padToWidth(s: string, maxWidth: number): string {
+  const visible = s.replace(/\{[^}]+\}/g, "");
+  if (visible.length <= maxWidth) {
+    return s + " ".repeat(maxWidth - visible.length);
+  }
+
+  let result = "";
+  let visibleCount = 0;
+  let i = 0;
+  while (i < s.length && visibleCount < maxWidth - 1) {
+    if (s[i] === "{") {
+      const end = s.indexOf("}", i);
+      if (end !== -1) {
+        result += s.slice(i, end + 1);
+        i = end + 1;
+      } else {
+        break;
+      }
+    } else {
+      result += s[i];
+      visibleCount++;
+      i++;
+    }
+  }
+  return result + "…";
+}
+
 // Get session state indicators for a project's claude/codex sessions (max 5, with "…" if more)
 // Each indicator is 3 chars wide visually (space + glyph + space), with 1 char space between
 // Matches Sessions panel behavior exactly
@@ -22,8 +49,8 @@ function getProjectSessionIndicators(
   const maxShow = 5;
   const indicatorWidth = 3; // Each indicator is " X " (3 chars visually)
   const spaceBetween = 1; // Space between indicators
-  // Max width: 5 indicators * 3 chars + 4 spaces between + 1 for "…" = 20 chars
-  const totalWidth = maxShow * indicatorWidth + (maxShow - 1) * spaceBetween + 1;
+  // Max width: 5 indicators * 3 chars + 4 spaces between = 19 chars
+  const totalWidth = maxShow * indicatorWidth + (maxShow - 1) * spaceBetween;
 
   if (!projectPath) return " ".repeat(totalWidth);
 
@@ -76,19 +103,11 @@ function getProjectSessionIndicators(
   // Calculate visual width of indicators (each is 3 chars + 1 space between, except last)
   const indicatorVisualWidth = indicators.length * indicatorWidth + (indicators.length - 1) * spaceBetween;
 
-  // Add suffix for overflow (more sessions than we can show)
-  const hasMore = sessions.length > maxShow && sessions.slice(maxShow).some((s) => {
-    const tmuxInfo = tmuxInfoMap.get(s.name);
-    const cmd = resolveCommand(s, tmuxInfo).toLowerCase();
-    return cmd.includes("claude") || cmd.includes("codex");
-  });
-  const suffix = hasMore ? "…" : " ";
-
   // Right-justify: add padding on the left
-  const paddingNeeded = totalWidth - indicatorVisualWidth - 1; // -1 for suffix
+  const paddingNeeded = totalWidth - indicatorVisualWidth;
   const padding = " ".repeat(Math.max(0, paddingNeeded));
 
-  return padding + indicatorStr + suffix;
+  return padding + indicatorStr;
 }
 
 // Update project display items (called when focus changes or data changes)
@@ -97,8 +116,8 @@ export function updateProjectDisplay(ctx: TuiContext): void {
 
   // Calculate box width for right-justifying indicators
   const boxWidth = (ctx.projectsBox as any).width;
-  const totalWidth = (typeof boxWidth === "number" ? boxWidth : 80) - 3; // minus borders and scrollbar
-  const indicatorColumnWidth = 20; // 5 indicators * 3 chars + 4 spaces between + 1 for "…"
+  const totalWidth = (typeof boxWidth === "number" ? boxWidth : 80) - 2; // minus borders
+  const indicatorColumnWidth = 19; // 5 indicators * 3 chars + 4 spaces between
 
   const isActive = ctx.focused === "projects";
 
@@ -113,9 +132,9 @@ export function updateProjectDisplay(ctx: TuiContext): void {
     // Calculate padding to right-justify indicators
     const visibleLeft = `${p.name} ${abbrevPath}`.length;
     const availableForPadding = totalWidth - visibleLeft - indicatorColumnWidth;
-    const padding = " ".repeat(Math.max(1, availableForPadding));
+    const padding = " ".repeat(Math.max(0, availableForPadding));
 
-    return `${leftContent}${padding}${indicators}`;
+    return padToWidth(`${leftContent}${padding}${indicators}`, totalWidth);
   });
   ctx.projectsBox.setItems(items);
 

@@ -146,8 +146,12 @@ export function updateFocusedStyles(ctx: TuiContext): void {
   }
 
   // Update scrollbar colors
-  (ctx.projectsBox as any).style.scrollbar.bg = ctx.focused === "projects" ? modeColor : colors.borderDim;
-  (ctx.sessionsBox as any).style.scrollbar.bg = ctx.focused === "sessions" ? modeColor : colors.borderDim;
+  if ((ctx.projectsBox as any).style.scrollbar) {
+    (ctx.projectsBox as any).style.scrollbar.bg = ctx.focused === "projects" ? modeColor : colors.borderDim;
+  }
+  if ((ctx.sessionsBox as any).style.scrollbar) {
+    (ctx.sessionsBox as any).style.scrollbar.bg = ctx.focused === "sessions" ? modeColor : colors.borderDim;
+  }
 
   // Update labels with focus indicator
   const projectsLabel =
