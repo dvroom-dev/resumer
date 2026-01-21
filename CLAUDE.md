@@ -9,8 +9,9 @@ You are working in the **`resumer`** repo: a Bun + TypeScript CLI/TUI (`res`) fo
 ## Commands
 - Install: `bun install`
 - Run: `bun run res`
-- Tests: `bun test`
-- Typecheck: `bun run typecheck`
+- Lint (max 500 lines per .ts file): `bun run lint`
+- Tests (runs lint first): `bun run test`
+- Typecheck (runs lint first): `bun run typecheck`
 - Build binary: `bun run build` → `dist/res`
 
 ## Architecture (where changes go)
@@ -42,6 +43,6 @@ You are working in the **`resumer`** repo: a Bun + TypeScript CLI/TUI (`res`) fo
 - Don’t add dependencies unless necessary (prefer small, local code).
 
 ## When you’re done
-- Run `bun test` and `bun run typecheck`.
+- Run `bun run lint`, `bun run test`, and `bun run typecheck`.
 - If you touched runtime behavior, also run `bun run build`.
 - Update `README.md` if user-visible behavior changed.

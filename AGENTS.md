@@ -5,8 +5,9 @@ This repo is a Bun + TypeScript CLI/TUI called **`res`** that manages **tmux ses
 ## Quick start (local dev)
 - Install deps: `bun install`
 - Run CLI/TUI: `bun run res`
-- Tests: `bun test`
-- Typecheck: `bun run typecheck`
+- Lint (max 500 lines per .ts file): `bun run lint`
+- Tests (runs lint first): `bun run test`
+- Typecheck (runs lint first): `bun run typecheck`
 - Build standalone binary: `bun run build` (outputs `dist/res`)
 
 ## Repo layout
@@ -46,7 +47,8 @@ This project is meant to ship as a **single Bun `--compile` binary**.
 - Prefer reconciling with tmux via session env vars instead of inventing data.
 
 ## Definition of done for changes
-- `bun test` passes.
+- `bun run lint` passes.
+- `bun run test` passes.
 - `bun run typecheck` passes.
 - If you changed UI/build/runtime behavior, ensure `bun run build` still works.
 - If CLI flags or TUI keys change, update `README.md`.

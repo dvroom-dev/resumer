@@ -17,6 +17,8 @@ curl -fsSL https://raw.githubusercontent.com/robotButler/resumer/main/install.sh
 - `bun install`
 - Run locally: `bun run bin/res.ts --help`
 - Optional: add a shell alias: `alias res='bun run /path/to/resumer/bin/res.ts'`
+- Lint (max 500 lines per .ts file): `bun run lint`
+- Tests (runs lint first): `bun run test`
 
 ## Standalone binary
 Build a single executable for your current OS/arch:

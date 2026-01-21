@@ -15,8 +15,9 @@
     "res": "bun run bin/res.ts",
     "build": "bun build ./bin/res.ts --compile -e term.js -e pty.js --outfile ./dist/res",
     "install:local": "./scripts/install-local.sh",
-    "test": "bun test",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "lint": "bun run scripts/lint.ts",
+    "test": "bun run lint && bun test",
+    "typecheck": "bun run lint && tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "blessed": "^0.1.81"
