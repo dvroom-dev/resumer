@@ -143,10 +143,10 @@ function stateIndicator(lastMessageType: "user" | "assistant" | "exited" | undef
   let color: string;
 
   if (lastMessageType === "user") {
-    glyph = "◷"; // LLM is working (clock)
+    glyph = "►"; // LLM is working (play)
     color = modeColors.codex;
   } else if (lastMessageType === "assistant") {
-    glyph = "☺"; // Waiting for user (smiling face)
+    glyph = "‖"; // Waiting for user (pause)
     color = modeColors.tmux;
   } else if (lastMessageType === "exited") {
     glyph = "×"; // Session exited
@@ -157,27 +157,27 @@ function stateIndicator(lastMessageType: "user" | "assistant" | "exited" | undef
   }
 
   if (isSelected) {
-    return `{${color}-bg}{black-fg} ${glyph}{/}`;
+    return `{${color}-bg}{black-fg} ${glyph} {/}`;
   }
-  return ` {${color}-fg}${glyph}{/}`;
+  return ` {${color}-fg}${glyph}{/} `;
 }
 
 function codexSessionLabel(info: CodexSessionSummary, isSelected: boolean = false): string {
   const state = stateIndicator(info.lastMessageType, isSelected);
-  const cwd = info.cwd ? ` {gray-fg}${info.cwd}{/gray-fg}` : "";
-  const when = info.lastActivityAt ? ` {gray-fg}·{/gray-fg} {${modeColors.res}-fg}${shortTimestamp(info.lastActivityAt)}{/}` : "";
-  const prompt = info.lastPrompt ? ` {gray-fg}·{/gray-fg} {gray-fg}${truncate(info.lastPrompt, 80)}{/gray-fg}` : "";
+  const cwd = info.cwd ? `{gray-fg}${info.cwd}{/gray-fg} ` : "";
+  const when = info.lastActivityAt ? `{gray-fg}·{/gray-fg} {${modeColors.res}-fg}${shortTimestamp(info.lastActivityAt)}{/} ` : "";
+  const prompt = info.lastPrompt ? `{gray-fg}·{/gray-fg} {gray-fg}${truncate(info.lastPrompt, 80)}{/gray-fg}` : "";
   const id = info.id.length > 12 ? info.id.slice(0, 12) : info.id;
-  return `${state} {bold}${id}{/bold}${cwd}${when}${prompt}`;
+  return `${state}{bold}${id}{/bold} ${cwd}${when}${prompt}`;
 }
 
 function claudeSessionLabel(info: ClaudeSessionSummary, isSelected: boolean = false): string {
   const state = stateIndicator(info.lastMessageType, isSelected);
-  const project = info.projectPath ? ` {gray-fg}${info.projectPath}{/gray-fg}` : "";
-  const when = info.lastActivityAt ? ` {gray-fg}·{/gray-fg} {${modeColors.res}-fg}${shortTimestamp(info.lastActivityAt)}{/}` : "";
-  const prompt = info.lastPrompt ? ` {gray-fg}·{/gray-fg} {gray-fg}${truncate(info.lastPrompt, 80)}{/gray-fg}` : "";
+  const project = info.projectPath ? `{gray-fg}${info.projectPath}{/gray-fg} ` : "";
+  const when = info.lastActivityAt ? `{gray-fg}·{/gray-fg} {${modeColors.res}-fg}${shortTimestamp(info.lastActivityAt)}{/} ` : "";
+  const prompt = info.lastPrompt ? `{gray-fg}·{/gray-fg} {gray-fg}${truncate(info.lastPrompt, 80)}{/gray-fg}` : "";
   const id = info.id.length > 12 ? info.id.slice(0, 12) : info.id;
-  return `${state} {bold}${id}{/bold}${project}${when}${prompt}`;
+  return `${state}{bold}${id}{/bold} ${project}${when}${prompt}`;
 }
 
 function getSelectedIndex(list: Widgets.ListElement): number {
@@ -650,7 +650,7 @@ export async function runMainTui(args: {
         );
         if (projectClaude.length > 0) {
           projectClaude.sort((a, b) => (b.lastActivityAt ?? "").localeCompare(a.lastActivityAt ?? ""));
-          return stateIndicator(projectClaude[0].lastMessageType, isSelected) + " ";
+          return stateIndicator(projectClaude[0].lastMessageType, isSelected);
         }
       }
 
@@ -660,7 +660,7 @@ export async function runMainTui(args: {
         );
         if (projectCodex.length > 0) {
           projectCodex.sort((a, b) => (b.lastActivityAt ?? "").localeCompare(a.lastActivityAt ?? ""));
-          return stateIndicator(projectCodex[0].lastMessageType, isSelected) + " ";
+          return stateIndicator(projectCodex[0].lastMessageType, isSelected);
         }
       }
 
