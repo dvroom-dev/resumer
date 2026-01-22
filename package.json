@@ -5,9 +5,9 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "https://github.com/robotButler/resumer.git"
+    "url": "https://github.com/dvroom-dev/resumer.git"
   },
-  "homepage": "https://github.com/robotButler/resumer",
+  "homepage": "https://github.com/dvroom-dev/resumer",
   "bin": {
     "res": "bin/res.ts"
   },
