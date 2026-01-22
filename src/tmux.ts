@@ -44,7 +44,10 @@ export function isTmuxInstalled(): boolean {
 
 function isNoServerError(err: unknown): boolean {
   if (!(err instanceof TmuxError)) return false;
-  return /no server running/i.test(err.stderr);
+  // "no server running" - tmux server not started
+  // "No such file or directory" - tmux socket doesn't exist (macOS)
+  // "Connection refused" - tmux server died
+  return /no server running|no such file or directory|connection refused/i.test(err.stderr);
 }
 
 export function listTmuxSessions(): string[] {
