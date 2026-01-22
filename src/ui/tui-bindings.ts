@@ -15,6 +15,7 @@ import {
   copySelectedClaudeSessionId,
   copySelectedCodexSessionId,
   copySelectedTmuxSessionName,
+  createNewTmuxSession,
   createTmuxFromClaudeSession,
   createTmuxFromCodexSession,
   deleteSelectedTmuxSession,
@@ -82,6 +83,10 @@ export function bindKeyHandlers(ctx: TuiContext, runtime: TuiRuntime): void {
     if (ctx.modalClose) return;
     if (ctx.mode !== "res" || ctx.focused !== "sessions") return;
     toggleExpandedSession(ctx);
+  });
+  ctx.screen.key(["n"], () => {
+    if (ctx.modalClose) return;
+    if (ctx.mode === "tmux") return createNewTmuxSession(ctx, runtime);
   });
 
   ctx.screen.key(["a"], () => {

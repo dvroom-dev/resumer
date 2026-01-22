@@ -251,6 +251,7 @@ export function showHelp(ctx: TuiContext, runtime: TuiRuntime): void {
 
   const tmuxKeys = [
     ["Enter", "Attach to selected tmux session"],
+    ["n", "Create new tmux session (pick project + command)"],
     ["d", "Delete (kill) selected tmux session"],
     ["c", "Capture pane content from selected session"],
     ["y", "Copy session name to clipboard"],

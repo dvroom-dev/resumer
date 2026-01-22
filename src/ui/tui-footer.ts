@@ -29,6 +29,7 @@ export function updateFooter(ctx: TuiContext, runtime: TuiRuntime): void {
       [
         styledKey("?", "help"),
         styledKey("Enter", "attach"),
+        styledKey("n", "new"),
         styledKey("d", "delete"),
         styledKey("c", "capture"),
         styledKey("y", "copy"),
