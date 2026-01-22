@@ -12,7 +12,9 @@ const glob = new Bun.Glob("**/*.ts");
 const violations: Array<{ file: string; lines: number }> = [];
 
 for await (const file of glob.scan({ cwd: root })) {
-  if (IGNORE_PREFIXES.some((prefix) => file.startsWith(prefix))) continue;
+  // Normalize path separators for Windows compatibility
+  const normalizedFile = file.replace(/\\/g, "/");
+  if (IGNORE_PREFIXES.some((prefix) => normalizedFile.startsWith(prefix))) continue;
 
   const fullPath = join(root, file);
   const text = await Bun.file(fullPath).text();
