@@ -40,9 +40,6 @@ jobs:
           - target: macos-arm64
             os: macos-latest
             outfile: res-macos-arm64
-          - target: macos-x64
-            os: macos-13
-            outfile: res-macos-x64
           - target: windows-x64
             os: windows-latest
             outfile: res-windows-x64.exe
@@ -77,7 +74,6 @@ jobs:
           files: |
             dist/**/res-linux-x64
             dist/**/res-macos-arm64
-            dist/**/res-macos-x64
             dist/**/res-windows-x64.exe
 
       # For main branch pushes - update "latest" release
@@ -101,7 +97,6 @@ jobs:
           files: |
             dist/**/res-linux-x64
             dist/**/res-macos-arm64
-            dist/**/res-macos-x64
             dist/**/res-windows-x64.exe
           body: |
             Automated build from main branch.
