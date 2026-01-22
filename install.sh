@@ -2,25 +2,26 @@
 set -euo pipefail
 
 REPO="${REPO:-dvroom-dev/resumer}"
+BRANCH="${BRANCH:-main}"
 PREFIX="${PREFIX:-$HOME/.local}"
 BINDIR="${BINDIR:-$PREFIX/bin}"
 NAME="${NAME:-res}"
-VERSION="${VERSION:-latest}" # tag like v0.1.0, or "latest"
 
 usage() {
   cat <<EOF
-Install resumer ("res") from GitHub Releases.
+Install resumer ("res") from source.
+
+Requires: git, bun (will offer to install if missing)
 
 Env vars:
   REPO     GitHub repo (default: $REPO)
-  VERSION  Tag like v0.1.0, or "latest" (default: $VERSION)
+  BRANCH   Git branch (default: $BRANCH)
   BINDIR   Install directory (default: $BINDIR)
   NAME     Installed binary name (default: $NAME)
 
 Examples:
-  curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/main/install.sh | bash
-  VERSION=v0.1.0 curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/main/install.sh | bash
-  BINDIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/main/install.sh | sudo bash
+  curl -fsSL https://raw.githubusercontent.com/$REPO/$BRANCH/install.sh | bash
+  BINDIR=/usr/local/bin curl -fsSL ... | sudo bash
 EOF
 }
 
@@ -31,85 +32,55 @@ fi
 
 need() {
   if ! command -v "$1" >/dev/null 2>&1; then
-    echo "Missing dependency: $1" >&2
-    exit 1
+    return 1
   fi
+  return 0
 }
 
-need uname
-need mktemp
-need curl
+# Check for git
+if ! need git; then
+  echo "Error: git is required but not installed." >&2
+  exit 1
+fi
 
-os="$(uname -s | tr '[:upper:]' '[:lower:]')"
-arch="$(uname -m)"
-
-case "$os" in
-  linux) os="linux" ;;
-  darwin) os="macos" ;;
-  *)
-    echo "Unsupported OS: $os" >&2
+# Check for bun, offer to install if missing
+if ! need bun; then
+  echo "Bun is required but not installed."
+  read -p "Install bun now? [y/N] " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    curl -fsSL https://bun.sh/install | bash
+    export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
+    export PATH="$BUN_INSTALL/bin:$PATH"
+  else
+    echo "Please install bun first: https://bun.sh" >&2
     exit 1
-    ;;
-esac
-
-case "$arch" in
-  x86_64|amd64) arch="x64" ;;
-  arm64|aarch64) arch="arm64" ;;
-  *)
-    echo "Unsupported arch: $arch" >&2
-    exit 1
-    ;;
-esac
-
-asset="res-${os}-${arch}"
-
-api="https://api.github.com/repos/${REPO}/releases/${VERSION}"
-if [[ "$VERSION" == "latest" ]]; then
-  api="https://api.github.com/repos/${REPO}/releases/latest"
-else
-  api="https://api.github.com/repos/${REPO}/releases/tags/${VERSION}"
+  fi
 fi
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-json="$tmp/release.json"
-curl -fsSL "$api" -o "$json"
+echo "Cloning $REPO ($BRANCH)..."
+git clone --depth 1 --branch "$BRANCH" "https://github.com/$REPO.git" "$tmp/resumer"
 
-download_url=""
-if command -v python3 >/dev/null 2>&1; then
-  download_url="$(
-    python3 - <<PY
-import json
-import sys
+cd "$tmp/resumer"
 
-with open("${json}", "r", encoding="utf-8") as f:
-    data = json.load(f)
+echo "Installing dependencies..."
+bun install
 
-assets = data.get("assets") or []
-want = "${asset}"
-for a in assets:
-    if a.get("name") == want:
-        print(a.get("browser_download_url") or "")
-        break
-PY
-  )"
-else
-  # Fallback: very small JSON "parse" that assumes the download_url appears near the name.
-  download_url="$(grep -A2 "\"name\": \"${asset}\"" "$json" | grep -m1 "browser_download_url" | sed -E 's/.*\"browser_download_url\": \"([^\"]+)\".*/\\1/')"
-fi
-
-if [[ -z "$download_url" ]]; then
-  echo "Could not find asset '${asset}' in ${REPO} release (${VERSION})." >&2
-  echo "If you're installing from source instead, run: ./scripts/install-local.sh" >&2
-  exit 1
-fi
+echo "Building binary..."
+bun run build
 
 mkdir -p "$BINDIR"
-out="$tmp/$asset"
-curl -fL "$download_url" -o "$out"
-chmod +x "$out"
-install -m 755 "$out" "$BINDIR/$NAME"
+install -m 755 ./dist/res "$BINDIR/$NAME"
 
+echo ""
 echo "Installed: $BINDIR/$NAME"
+echo ""
+if [[ ":$PATH:" != *":$BINDIR:"* ]]; then
+  echo "Note: $BINDIR is not in your PATH. Add it with:"
+  echo "  export PATH=\"$BINDIR:\$PATH\""
+  echo ""
+fi
 echo "Try: $NAME --help"

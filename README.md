@@ -3,15 +3,11 @@ Track tmux sessions per project directory, with a simple CLI + TUI.
 
 ## Quick install
 
-### From GitHub Releases (recommended)
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dvroom-dev/resumer/main/install.sh | bash
 ```
 
-### From source (requires Bun)
-```bash
-./scripts/install-local.sh
-```
+Requires `git`. Will prompt to install `bun` if not found.
 
 ## Install (from this repo)
 - `bun install`
