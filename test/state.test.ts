@@ -101,30 +101,37 @@ describe("state helpers", () => {
 
   it("findProject matches by id, path, and realpath", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "resumer-proj-"));
-    const link = path.join(os.tmpdir(), `resumer-link-${Date.now()}`);
-    try {
-      fs.symlinkSync(dir, link);
-      const realDir = fs.realpathSync(dir);
-      const state = {
-        version: 1 as const,
-        projects: {
-          p1: {
-            id: "p1",
-            name: "Project One",
-            path: realDir,
-            createdAt: "2024-01-01T00:00:00.000Z",
-            lastUsedAt: "2024-01-01T00:00:00.000Z",
-          },
+    const realDir = fs.realpathSync(dir);
+    const state = {
+      version: 1 as const,
+      projects: {
+        p1: {
+          id: "p1",
+          name: "Project One",
+          path: realDir,
+          createdAt: "2024-01-01T00:00:00.000Z",
+          lastUsedAt: "2024-01-01T00:00:00.000Z",
         },
-        sessions: {},
-      };
-      expect(findProject(state, "p1", process.cwd())?.id).toBe("p1");
-      expect(findProject(state, realDir, process.cwd())?.id).toBe("p1");
-      expect(findProject(state, link, process.cwd())?.id).toBe("p1");
-    } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
-      fs.rmSync(link, { force: true });
+      },
+      sessions: {},
+    };
+
+    // Test id and path matching
+    expect(findProject(state, "p1", process.cwd())?.id).toBe("p1");
+    expect(findProject(state, realDir, process.cwd())?.id).toBe("p1");
+
+    // Test symlink matching (skip on Windows - requires admin privileges)
+    if (process.platform !== "win32") {
+      const link = path.join(os.tmpdir(), `resumer-link-${Date.now()}`);
+      try {
+        fs.symlinkSync(dir, link);
+        expect(findProject(state, link, process.cwd())?.id).toBe("p1");
+      } finally {
+        fs.rmSync(link, { force: true });
+      }
     }
+
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 
   it("listProjects sorts by lastUsedAt then createdAt", () => {

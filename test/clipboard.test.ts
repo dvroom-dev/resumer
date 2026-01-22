@@ -26,6 +26,6 @@ describe("clipboard", () => {
     spawnBehavior.mode = "success";
     const res = clipboard.copyToSystemClipboard("hello");
     expect(res.ok).toBe(true);
-    if (res.ok) expect(["pbcopy", "wl-copy", "xclip", "xsel"]).toContain(res.method);
+    if (res.ok) expect(["pbcopy", "clip", "wl-copy", "xclip", "xsel"]).toContain(res.method);
   });
 });

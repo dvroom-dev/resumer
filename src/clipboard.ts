@@ -8,6 +8,7 @@ export function copyToSystemClipboard(text: string): CopyResult {
   const trimmed = text ?? "";
   const candidates: Array<{ method: string; cmd: string; args: string[]; when?: boolean }> = [
     { method: "pbcopy", cmd: "pbcopy", args: [], when: process.platform === "darwin" },
+    { method: "clip", cmd: "clip", args: [], when: process.platform === "win32" },
     { method: "wl-copy", cmd: "wl-copy", args: [], when: process.platform === "linux" && Boolean(process.env.WAYLAND_DISPLAY) },
     { method: "xclip", cmd: "xclip", args: ["-selection", "clipboard"], when: process.platform === "linux" },
     { method: "xsel", cmd: "xsel", args: ["--clipboard", "--input"], when: process.platform === "linux" },
@@ -20,6 +21,6 @@ export function copyToSystemClipboard(text: string): CopyResult {
     if (res.status === 0) return { ok: true, method: c.method };
   }
 
-  return { ok: false, error: "No clipboard helper found (pbcopy/wl-copy/xclip/xsel)." };
+  return { ok: false, error: "No clipboard helper found (pbcopy/clip/wl-copy/xclip/xsel)." };
 }
 
