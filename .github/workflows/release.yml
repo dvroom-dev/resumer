@@ -2,6 +2,7 @@ name: Release
 
 on:
   push:
+    branches: [main]
     tags:
       - "v*.*.*"
 
@@ -9,8 +10,25 @@ permissions:
   contents: write
 
 jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: "1.3.3"
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun test
+
   build:
     name: Build (${{ matrix.target }})
+    needs: test
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -23,7 +41,7 @@ jobs:
             os: macos-latest
             outfile: res-macos-arm64
           - target: macos-x64
-            os: macos-15-intel
+            os: macos-13
             outfile: res-macos-x64
           - target: windows-x64
             os: windows-latest
@@ -34,8 +52,6 @@ jobs:
         with:
           bun-version: "1.3.3"
       - run: bun install --frozen-lockfile
-      - run: bun run typecheck
-      - run: bun test
       - run: bun build ./bin/res.ts --compile -e term.js -e pty.js --outfile "./dist/${{ matrix.outfile }}"
       - uses: actions/upload-artifact@v4
         with:
@@ -44,17 +60,52 @@ jobs:
           if-no-files-found: error
 
   publish:
-    name: Publish GitHub Release
+    name: Publish Release
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: dist
-      - uses: softprops/action-gh-release@v2
+
+      # For tagged releases (v*.*.*)
+      - name: Publish tagged release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/**/res-linux-x64
             dist/**/res-macos-arm64
             dist/**/res-macos-x64
             dist/**/res-windows-x64.exe
+
+      # For main branch pushes - update "latest" release
+      - name: Delete existing latest release
+        if: github.ref == 'refs/heads/main'
+        run: gh release delete latest --yes || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Delete existing latest tag
+        if: github.ref == 'refs/heads/main'
+        run: git push origin :refs/tags/latest || true
+
+      - name: Publish latest release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest Build
+          prerelease: true
+          files: |
+            dist/**/res-linux-x64
+            dist/**/res-macos-arm64
+            dist/**/res-macos-x64
+            dist/**/res-windows-x64.exe
+          body: |
+            Automated build from main branch.
+
+            Commit: ${{ github.sha }}
+
+            For stable releases, see tagged versions.

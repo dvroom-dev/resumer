@@ -7,7 +7,7 @@ Track tmux sessions per project directory, with a simple CLI + TUI.
 curl -fsSL https://raw.githubusercontent.com/dvroom-dev/resumer/main/install.sh | bash
 ```
 
-Requires `git`. Will prompt to install `bun` if not found.
+Downloads a pre-built binary for your platform (Linux/macOS, x64/arm64).
 
 ## Install (from this repo)
 - `bun install`

@@ -2,25 +2,24 @@
 set -euo pipefail
 
 REPO="${REPO:-dvroom-dev/resumer}"
-BRANCH="${BRANCH:-main}"
 PREFIX="${PREFIX:-$HOME/.local}"
 BINDIR="${BINDIR:-$PREFIX/bin}"
 NAME="${NAME:-res}"
+VERSION="${VERSION:-latest}"
 
 usage() {
   cat <<EOF
-Install resumer ("res") from source.
-
-Requires: git, bun (will offer to install if missing)
+Install resumer ("res") from GitHub Releases.
 
 Env vars:
   REPO     GitHub repo (default: $REPO)
-  BRANCH   Git branch (default: $BRANCH)
+  VERSION  Tag like v0.1.0, or "latest" (default: $VERSION)
   BINDIR   Install directory (default: $BINDIR)
   NAME     Installed binary name (default: $NAME)
 
 Examples:
-  curl -fsSL https://raw.githubusercontent.com/$REPO/$BRANCH/install.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/$REPO/main/install.sh | bash
+  VERSION=v0.1.0 curl -fsSL ... | bash
   BINDIR=/usr/local/bin curl -fsSL ... | sudo bash
 EOF
 }
@@ -32,48 +31,62 @@ fi
 
 need() {
   if ! command -v "$1" >/dev/null 2>&1; then
-    return 1
-  fi
-  return 0
-}
-
-# Check for git
-if ! need git; then
-  echo "Error: git is required but not installed." >&2
-  exit 1
-fi
-
-# Check for bun, offer to install if missing
-if ! need bun; then
-  echo "Bun is required but not installed."
-  read -p "Install bun now? [y/N] " -n 1 -r
-  echo
-  if [[ $REPLY =~ ^[Yy]$ ]]; then
-    curl -fsSL https://bun.sh/install | bash
-    export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
-    export PATH="$BUN_INSTALL/bin:$PATH"
-  else
-    echo "Please install bun first: https://bun.sh" >&2
+    echo "Missing dependency: $1" >&2
     exit 1
   fi
+}
+
+need curl
+
+os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+arch="$(uname -m)"
+
+case "$os" in
+  linux) os="linux" ;;
+  darwin) os="macos" ;;
+  *)
+    echo "Unsupported OS: $os" >&2
+    exit 1
+    ;;
+esac
+
+case "$arch" in
+  x86_64|amd64) arch="x64" ;;
+  arm64|aarch64) arch="arm64" ;;
+  *)
+    echo "Unsupported arch: $arch" >&2
+    exit 1
+    ;;
+esac
+
+asset="res-${os}-${arch}"
+
+# Build download URL directly (faster than API)
+if [[ "$VERSION" == "latest" ]]; then
+  download_url="https://github.com/${REPO}/releases/download/latest/${asset}"
+else
+  download_url="https://github.com/${REPO}/releases/download/${VERSION}/${asset}"
 fi
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-echo "Cloning $REPO ($BRANCH)..."
-git clone --depth 1 --branch "$BRANCH" "https://github.com/$REPO.git" "$tmp/resumer"
-
-cd "$tmp/resumer"
-
-echo "Installing dependencies..."
-bun install
-
-echo "Building binary..."
-bun run build
+echo "Downloading ${asset}..."
+out="$tmp/$asset"
+if ! curl -fL "$download_url" -o "$out" 2>/dev/null; then
+  echo "Failed to download from: $download_url" >&2
+  echo "" >&2
+  echo "The release may not exist yet. Try again in a few minutes," >&2
+  echo "or build from source:" >&2
+  echo "  git clone https://github.com/${REPO}.git && cd resumer" >&2
+  echo "  bun install && bun run build" >&2
+  echo "  install -m 755 ./dist/res ~/.local/bin/res" >&2
+  exit 1
+fi
 
 mkdir -p "$BINDIR"
-install -m 755 ./dist/res "$BINDIR/$NAME"
+chmod +x "$out"
+install -m 755 "$out" "$BINDIR/$NAME"
 
 echo ""
 echo "Installed: $BINDIR/$NAME"
