@@ -18,7 +18,7 @@ export function createTuiLayout() {
     style: { bg: "default" },
   });
 
-  const siteUrl = "https://dvroom.dev";
+  const siteUrl = "dvroom.dev";
   const headerUrl = blessed.box({
     parent: screen,
     top: 0,
