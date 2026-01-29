@@ -88,11 +88,6 @@ function attachSession(state: StateV1, name: string): void {
   attachOrSwitchTmuxSession(name);
 }
 
-function sessionMatchesCommand(session: SessionRecord, needle: string): boolean {
-  const hay = (session.command ?? "").toLowerCase();
-  return hay.includes(needle.toLowerCase());
-}
-
 async function pickAndAttach(state: StateV1, sessions: SessionRecord[], title: string): Promise<void> {
   const picked = await runPicker<string>({
     title,
@@ -117,26 +112,11 @@ async function handleOpenPath(args: {
 
   const liveSessions = listSessionsForProject(args.state, project.id);
 
-  if (args.forceCreate) {
+  // Always create a new session when -c flag or command is specified
+  if (args.forceCreate || args.command) {
     const sess = createResumerSession(args.state, project, args.command);
     writeState(args.state);
     attachSession(args.state, sess.name);
-    return;
-  }
-
-  if (args.command) {
-    const matches = liveSessions.filter((s) => sessionMatchesCommand(s, args.command!));
-    if (matches.length === 0) {
-      const sess = createResumerSession(args.state, project, args.command);
-      writeState(args.state);
-      attachSession(args.state, sess.name);
-      return;
-    }
-    if (matches.length === 1) {
-      attachSession(args.state, matches[0]!.name);
-      return;
-    }
-    await pickAndAttach(args.state, matches, `Pick session (${project.name})`);
     return;
   }
 

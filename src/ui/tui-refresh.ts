@@ -118,6 +118,7 @@ export function updateProjectDisplay(ctx: TuiContext): void {
   const boxWidth = (ctx.projectsBox as any).width;
   const totalWidth = (typeof boxWidth === "number" ? boxWidth : 80) - 2; // minus borders
   const indicatorColumnWidth = 19; // 5 indicators * 3 chars + 4 spaces between
+  const minGap = 1; // Minimum space between left content and indicators
 
   const isActive = ctx.focused === "projects";
 
@@ -126,15 +127,40 @@ export function updateProjectDisplay(ctx: TuiContext): void {
     const abbrevPath = abbreviatePath(p.path);
     // Project name: white when active OR when this is the selected project. Path: always gray.
     const isSelected = idx === ctx.selectedProjectIndex;
-    const nameText = (isActive || isSelected) ? p.name : `{gray-fg}${p.name}{/gray-fg}`;
-    const leftContent = `${nameText} {gray-fg}${abbrevPath}{/gray-fg}`;
 
-    // Calculate padding to right-justify indicators
-    const visibleLeft = `${p.name} ${abbrevPath}`.length;
-    const availableForPadding = totalWidth - visibleLeft - indicatorColumnWidth;
-    const padding = " ".repeat(Math.max(0, availableForPadding));
+    // Calculate max width available for left content (name + path)
+    const maxLeftWidth = totalWidth - indicatorColumnWidth - minGap;
 
-    return padToWidth(`${leftContent}${padding}${indicators}`, totalWidth);
+    // Build left content, truncating if needed to always show indicators
+    const visibleLeft = `${p.name} ${abbrevPath}`;
+    let leftContent: string;
+    if (visibleLeft.length <= maxLeftWidth) {
+      // Fits - use full content with styling
+      const nameText = (isActive || isSelected) ? p.name : `{gray-fg}${p.name}{/gray-fg}`;
+      leftContent = `${nameText} {gray-fg}${abbrevPath}{/gray-fg}`;
+    } else {
+      // Truncate - prioritize showing name, truncate path
+      const nameText = (isActive || isSelected) ? p.name : `{gray-fg}${p.name}{/gray-fg}`;
+      const nameLen = p.name.length;
+      const pathMaxLen = maxLeftWidth - nameLen - 2; // -2 for space and ellipsis
+      if (pathMaxLen > 0) {
+        const truncPath = abbrevPath.slice(0, pathMaxLen) + "…";
+        leftContent = `${nameText} {gray-fg}${truncPath}{/gray-fg}`;
+      } else if (maxLeftWidth > 1) {
+        // Not even room for path - truncate name
+        const truncName = p.name.slice(0, maxLeftWidth - 1) + "…";
+        leftContent = (isActive || isSelected) ? truncName : `{gray-fg}${truncName}{/gray-fg}`;
+      } else {
+        leftContent = "…";
+      }
+    }
+
+    // Calculate visible length of left content for padding
+    const leftVisible = leftContent.replace(/\{[^}]+\}/g, "").length;
+    const paddingNeeded = totalWidth - leftVisible - indicatorColumnWidth;
+    const padding = " ".repeat(Math.max(minGap, paddingNeeded));
+
+    return `${leftContent}${padding}${indicators}`;
   });
   ctx.projectsBox.setItems(items);
 
