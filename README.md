@@ -1,6 +1,8 @@
 # resumer (`res`)
 Track tmux sessions per project directory, with a simple CLI + TUI.
 
+![resumer TUI screenshot](assets/resumer-main.png)
+
 ## Quick install
 
 ```bash
