@@ -99,6 +99,40 @@ describe("ui core modules", () => {
     } as any);
   });
 
+  it("refreshes Codex/Claude only once per res-mode refresh cycle", () => {
+    const ctx = makeCtx();
+    const project = { id: "p1", name: "Proj", path: "/tmp/proj", createdAt: "now" } as any;
+    ctx.state.projects = { p1: project };
+    ctx.state.sessions = {
+      s1: { name: "s1", projectId: "p1", projectPath: "/tmp/proj", createdAt: "now", command: "codex --yolo" },
+    } as any;
+
+    let codexCalls = 0;
+    let claudeCalls = 0;
+    ctx.actions.listTmuxSessions = () => [];
+    ctx.actions.listCodexSessions = () => {
+      codexCalls++;
+      return [];
+    };
+    ctx.actions.listClaudeSessions = () => {
+      claudeCalls++;
+      return [];
+    };
+
+    const runtime = {
+      refreshSessionsForSelectedProject: () => refresh.refreshSessionsForSelectedProject(ctx as any),
+      updateHeader: () => {},
+      updateFocusedStyles: () => {},
+      showError: (msg: string) => {
+        throw new Error(msg);
+      },
+    } as any;
+
+    refresh.refresh(ctx as any, runtime);
+    expect(codexCalls).toBe(1);
+    expect(claudeCalls).toBe(1);
+  });
+
   it("supports search", async () => {
     const ctx = makeCtx();
     ctx.projects = [{ id: "p1", name: "Alpha", path: "/tmp/alpha" } as any];

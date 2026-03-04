@@ -262,8 +262,5 @@ export function refreshSessionsForSelectedProject(ctx: TuiContext): void {
     }
   }
 
-  ctx.claudeSessions = ctx.actions.listClaudeSessions();
-  ctx.codexSessions = ctx.actions.listCodexSessions();
-
   updateSessionDisplay(ctx);
 }

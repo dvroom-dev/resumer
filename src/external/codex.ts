@@ -28,6 +28,8 @@ type CodexSessionMetaLine = {
 };
 
 const NO_PROMPT_PLACEHOLDER = "(no prompt yet)";
+const RECENT_ORPHAN_SCAN_LIMIT = 200;
+const RECENT_ORPHAN_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object";
@@ -44,6 +46,10 @@ function isRealPrompt(text: string): boolean {
   }
 
   return true;
+}
+
+function normalizeSessionId(id: string): string {
+  return id.toLowerCase();
 }
 
 function isoFromUnixSeconds(seconds: number): string {
@@ -133,6 +139,48 @@ function walkFiles(root: string, out: string[], maxFiles: number): void {
   }
 }
 
+function extractSessionIdFromFilename(filePath: string): string | null {
+  const fileName = path.basename(filePath);
+  const matches = fileName.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi);
+  if (!matches?.length) return null;
+  const id = matches[matches.length - 1];
+  if (!id) return null;
+  return normalizeSessionId(id);
+}
+
+function pickCandidateSessionFiles(
+  sessionFiles: string[],
+  promptSessionIds: Set<string>,
+): string[] {
+  const selected = new Set<string>();
+  const orphanCandidates: Array<{ filePath: string; mtimeMs: number }> = [];
+  const now = Date.now();
+
+  for (const filePath of sessionFiles) {
+    const fileSessionId = extractSessionIdFromFilename(filePath);
+    if (fileSessionId && promptSessionIds.has(fileSessionId)) {
+      selected.add(filePath);
+      continue;
+    }
+
+    try {
+      const stat = fs.statSync(filePath);
+      if (now - stat.mtimeMs <= RECENT_ORPHAN_WINDOW_MS) {
+        orphanCandidates.push({ filePath, mtimeMs: stat.mtimeMs });
+      }
+    } catch {
+      // Ignore stat errors while gathering candidates.
+    }
+  }
+
+  orphanCandidates
+    .sort((a, b) => b.mtimeMs - a.mtimeMs)
+    .slice(0, RECENT_ORPHAN_SCAN_LIMIT)
+    .forEach((entry) => selected.add(entry.filePath));
+
+  return Array.from(selected);
+}
+
 function getCodexHomeDir(): string {
   const override = process.env.CODEX_HOME?.trim() || process.env.RESUMER_CODEX_HOME?.trim();
   if (override) return override;
@@ -156,8 +204,9 @@ function buildLastPromptIndex(codexHome: string): Map<string, { ts: number; text
     const text = typeof parsed.text === "string" ? parsed.text : null;
     if (!sessionId || !ts || !text) continue;
     if (!isRealPrompt(text)) continue;
-    const prev = map.get(sessionId);
-    if (!prev || ts >= prev.ts) map.set(sessionId, { ts, text });
+    const key = normalizeSessionId(sessionId);
+    const prev = map.get(key);
+    if (!prev || ts >= prev.ts) map.set(key, { ts, text });
   }
   return map;
 }
@@ -213,16 +262,18 @@ export function listCodexSessions(): CodexSessionSummary[] {
   if (!fs.existsSync(sessionsRoot) || !fs.statSync(sessionsRoot).isDirectory()) return [];
 
   const lastPrompt = buildLastPromptIndex(codexHome);
+  const promptSessionIds = new Set(lastPrompt.keys());
   const recentActivityMs = 5 * 60 * 1000;
 
   const sessionFiles: string[] = [];
   walkFiles(sessionsRoot, sessionFiles, 5000);
+  const candidateFiles = pickCandidateSessionFiles(sessionFiles, promptSessionIds);
 
   const out: CodexSessionSummary[] = [];
-  for (const filePath of sessionFiles) {
+  for (const filePath of candidateFiles) {
     const parsed = parseCodexSessionFile(filePath);
     if (!parsed) continue;
-    const last = lastPrompt.get(parsed.id);
+    const last = lastPrompt.get(normalizeSessionId(parsed.id));
     const lastActivityAt = last ? isoFromUnixSeconds(last.ts) : undefined;
     let lastMessageType = getLastMessageType(filePath);
     if (lastMessageType === "user") {
