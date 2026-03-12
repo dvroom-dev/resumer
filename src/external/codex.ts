@@ -127,7 +127,14 @@ function safeJsonParse(line: string): unknown {
 
 function walkFiles(root: string, out: string[], maxFiles: number): void {
   if (out.length >= maxFiles) return;
-  const entries = fs.readdirSync(root, { withFileTypes: true });
+  const entries = fs
+    .readdirSync(root, { withFileTypes: true })
+    // Session paths are date-encoded (YYYY/MM/DD + timestamp in filename).
+    // Traverse newest-first so the maxFiles cap keeps recent sessions.
+    .sort((a, b) => {
+      if (a.name === b.name) return 0;
+      return a.name < b.name ? 1 : -1;
+    });
   for (const ent of entries) {
     if (out.length >= maxFiles) return;
     const full = path.join(root, ent.name);

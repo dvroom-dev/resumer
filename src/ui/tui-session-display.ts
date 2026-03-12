@@ -13,6 +13,65 @@ function resolveCommandHint(session: SessionRecord, tmuxInfo?: TmuxSessionInfo):
   return session.command?.trim() || tmuxInfo?.currentCommand?.trim() || "";
 }
 
+function parseIsoMs(value: string | undefined): number | null {
+  if (!value) return null;
+  const ms = Date.parse(value);
+  if (Number.isNaN(ms)) return null;
+  return ms;
+}
+
+function extractCodexResumeSessionId(command: string): string | null {
+  const match = command.match(/\bcodex\b[\s\S]*?\bresume\s+['"]?([0-9a-fA-F-]{8,})['"]?/i);
+  if (!match?.[1]) return null;
+  return match[1].toLowerCase();
+}
+
+function selectMostRecentCodexSession(projectCodex: CodexSessionSummary[]): CodexSessionSummary | null {
+  if (!projectCodex.length) return null;
+  return [...projectCodex].sort((a, b) => {
+    const aKey = a.lastActivityAt ?? a.startedAt ?? "";
+    const bKey = b.lastActivityAt ?? b.startedAt ?? "";
+    return bKey.localeCompare(aKey);
+  })[0] ?? null;
+}
+
+function matchCodexSessionForTmuxSession(
+  projectPath: string,
+  session: SessionRecord,
+  codexSessions: CodexSessionSummary[],
+  tmuxInfo?: TmuxSessionInfo,
+): CodexSessionSummary | null {
+  const projectCodex = codexSessions.filter((cs) => cs.cwd === projectPath);
+  if (!projectCodex.length) return null;
+
+  const cmd = resolveCommandHint(session, tmuxInfo);
+  const resumeId = extractCodexResumeSessionId(cmd);
+  if (resumeId) {
+    const direct = projectCodex.find((cs) => cs.id.toLowerCase() === resumeId);
+    if (direct) return direct;
+  }
+
+  const anchorMs = parseIsoMs(session.lastAttachedAt ?? session.createdAt);
+  if (anchorMs !== null) {
+    let best: CodexSessionSummary | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    let bestTimestamp = Number.NEGATIVE_INFINITY;
+    for (const candidate of projectCodex) {
+      const candidateMs = parseIsoMs(candidate.lastActivityAt ?? candidate.startedAt);
+      if (candidateMs === null) continue;
+      const distance = Math.abs(candidateMs - anchorMs);
+      if (distance < bestDistance || (distance === bestDistance && candidateMs > bestTimestamp)) {
+        best = candidate;
+        bestDistance = distance;
+        bestTimestamp = candidateMs;
+      }
+    }
+    if (best) return best;
+  }
+
+  return selectMostRecentCodexSession(projectCodex);
+}
+
 function getLastMessageForSession(
   selectedProject: Project | null,
   session: SessionRecord,
@@ -36,12 +95,8 @@ function getLastMessageForSession(
   }
 
   if (cmd.includes("codex")) {
-    // Find most recent codex session for this project
-    const projectCodex = codexSessions.filter((cs) => cs.cwd === project.path);
-    if (projectCodex.length > 0) {
-      projectCodex.sort((a, b) => (b.lastActivityAt ?? "").localeCompare(a.lastActivityAt ?? ""));
-      return projectCodex[0].lastPrompt ?? null;
-    }
+    const matched = matchCodexSessionForTmuxSession(project.path, session, codexSessions, tmuxInfo);
+    if (matched) return matched.lastPrompt ?? null;
   }
 
   return null;
@@ -69,11 +124,8 @@ function getSessionStateIndicator(
   }
 
   if (cmd.includes("codex")) {
-    const projectCodex = codexSessions.filter((cs) => cs.cwd === project.path);
-    if (projectCodex.length > 0) {
-      projectCodex.sort((a, b) => (b.lastActivityAt ?? "").localeCompare(a.lastActivityAt ?? ""));
-      return stateIndicator(projectCodex[0].lastMessageType);
-    }
+    const matched = matchCodexSessionForTmuxSession(project.path, session, codexSessions, tmuxInfo);
+    if (matched) return stateIndicator(matched.lastMessageType);
   }
 
   return "";

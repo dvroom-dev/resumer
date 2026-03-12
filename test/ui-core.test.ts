@@ -133,6 +133,50 @@ describe("ui core modules", () => {
     expect(claudeCalls).toBe(1);
   });
 
+  it("maps Codex last prompts per session instead of reusing one project prompt", () => {
+    const ctx = makeCtx();
+    const project = { id: "p1", name: "Proj", path: "/tmp/proj", createdAt: "now" } as any;
+    ctx.focused = "sessions";
+    ctx.selectedProject = project;
+    ctx.sessions = [
+      {
+        name: "s1",
+        projectId: "p1",
+        projectPath: "/tmp/proj",
+        createdAt: "2026-01-01T00:10:00.000Z",
+        command: "codex --yolo",
+      },
+      {
+        name: "s2",
+        projectId: "p1",
+        projectPath: "/tmp/proj",
+        createdAt: "2026-01-01T02:10:00.000Z",
+        command: "codex --yolo",
+      },
+    ] as any;
+    ctx.codexSessions = [
+      {
+        id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        cwd: "/tmp/proj",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        lastActivityAt: "2026-01-01T00:20:00.000Z",
+        lastPrompt: "old codex prompt",
+      },
+      {
+        id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        cwd: "/tmp/proj",
+        startedAt: "2026-01-01T02:00:00.000Z",
+        lastActivityAt: "2026-01-01T02:20:00.000Z",
+        lastPrompt: "new codex prompt",
+      },
+    ] as any;
+
+    sessionDisplay.updateSessionDisplay(ctx as any);
+    const items = (ctx.sessionsBox as any).items ?? [];
+    expect(items.some((item: string) => item.includes("old codex prompt"))).toBe(true);
+    expect(items.some((item: string) => item.includes("new codex prompt"))).toBe(true);
+  });
+
   it("supports search", async () => {
     const ctx = makeCtx();
     ctx.projects = [{ id: "p1", name: "Alpha", path: "/tmp/alpha" } as any];
